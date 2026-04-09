@@ -1,6 +1,6 @@
 # Redline
 
-A powerful, privacy-first PDF editor that runs entirely in your browser. No uploads, no servers, no accounts — your documents never leave your device.
+A client-side PDF editor. Annotate, redact, merge, and export — everything happens in the browser, nothing gets uploaded anywhere.
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178C6?logo=typescript&logoColor=white)
@@ -123,12 +123,7 @@ Redline uses the **Aurora** design system — a dark-theme UI built on CSS custo
 
 ## Privacy
 
-Redline is 100% client-side. Your PDFs are processed entirely in the browser using Web APIs:
-
-- **No server uploads** — files stay on your machine
-- **No tracking** — zero analytics, no cookies
-- **No accounts** — nothing to sign up for
-- **Local storage only** — auto-save uses IndexedDB in your browser
+There's no backend. PDFs are rendered and manipulated with Web APIs in the browser tab. Nothing leaves your machine — no uploads, no analytics, no accounts. Auto-save writes to IndexedDB locally.
 
 ## License
 
