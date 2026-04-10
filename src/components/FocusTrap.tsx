@@ -44,7 +44,9 @@ export function FocusTrap({ children, active = true }: FocusTrapProps) {
     container.addEventListener('keydown', handleKeyDown);
     return () => {
       container.removeEventListener('keydown', handleKeyDown);
-      previouslyFocused?.focus();
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        previouslyFocused.focus();
+      }
     };
   }, [active]);
 

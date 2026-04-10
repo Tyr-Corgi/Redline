@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback, useState, memo } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 interface PageSidebarProps {
@@ -11,7 +11,7 @@ interface PageSidebarProps {
   onDeletePage: (page: number) => void;
 }
 
-export function PageSidebar({
+function PageSidebarComponent({
   pdfDoc,
   currentPage,
   onPageChange,
@@ -22,6 +22,26 @@ export function PageSidebar({
 }: PageSidebarProps) {
   const visiblePages = Array.from({ length: pdfDoc.numPages }, (_, i) => i + 1)
     .filter(pageNum => !deletedPages.includes(pageNum));
+
+  const [visibleThumbnails, setVisibleThumbnails] = useState<Set<number>>(new Set([currentPage]));
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  useEffect(() => {
+    observerRef.current = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const pageNum = Number(entry.target.getAttribute('data-page'));
+          if (pageNum) setVisibleThumbnails(prev => new Set(prev).add(pageNum));
+        }
+      });
+    }, { rootMargin: '100px' });
+
+    return () => observerRef.current?.disconnect();
+  }, []);
+
+  useEffect(() => {
+    setVisibleThumbnails(prev => new Set(prev).add(currentPage));
+  }, [currentPage]);
 
   return (
     <div className="page-sidebar">
@@ -37,6 +57,8 @@ export function PageSidebar({
             rotation={pageRotations[pageNum] || 0}
             onRotate={() => onRotatePage(pageNum)}
             onDelete={visiblePages.length > 1 ? () => onDeletePage(pageNum) : undefined}
+            observer={observerRef.current}
+            isVisible={visibleThumbnails.has(pageNum)}
           />
         ))}
       </div>
@@ -44,7 +66,9 @@ export function PageSidebar({
   );
 }
 
-function PageThumbnail({ pdfDoc, pageNum, isActive, onClick, rotation, onRotate, onDelete }: {
+export const PageSidebar = memo(PageSidebarComponent);
+
+function PageThumbnail({ pdfDoc, pageNum, isActive, onClick, rotation, onRotate, onDelete, observer, isVisible }: {
   pdfDoc: PDFDocumentProxy;
   pageNum: number;
   isActive: boolean;
@@ -52,15 +76,18 @@ function PageThumbnail({ pdfDoc, pageNum, isActive, onClick, rotation, onRotate,
   rotation: number;
   onRotate: () => void;
   onDelete?: () => void;
+  observer: IntersectionObserver | null;
+  isVisible: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [rendered, setRendered] = useState(false);
   const renderingRef = useRef(false);
   const retryCountRef = useRef(0);
 
   const render = useCallback(async () => {
     const canvas = canvasRef.current;
-    if (!canvas || rendered || renderingRef.current) return;
+    if (!canvas || rendered || renderingRef.current || !isVisible) return;
     renderingRef.current = true;
 
     try {
@@ -93,9 +120,17 @@ function PageThumbnail({ pdfDoc, pageNum, isActive, onClick, rotation, onRotate,
     } finally {
       renderingRef.current = false;
     }
-  }, [pdfDoc, pageNum, rendered]);
+  }, [pdfDoc, pageNum, rendered, isVisible]);
 
   useEffect(() => { render(); }, [render]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (container && observer) {
+      observer.observe(container);
+      return () => observer.unobserve(container);
+    }
+  }, [observer]);
 
   const handleDelete = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -111,12 +146,14 @@ function PageThumbnail({ pdfDoc, pageNum, isActive, onClick, rotation, onRotate,
 
   return (
     <div
+      ref={containerRef}
       className={`page-thumbnail ${isActive ? 'active' : ''}`}
       onClick={onClick}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
       role="button"
       tabIndex={0}
       title={`Page ${pageNum}`}
+      data-page={pageNum}
     >
       <canvas
         ref={canvasRef}

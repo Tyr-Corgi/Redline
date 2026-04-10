@@ -15,6 +15,11 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { Tool, ToolConfig } from '../types';
 const SignatureModal = lazy(() => import('./SignatureModal').then(m => ({ default: m.SignatureModal })));
 
+// Constants
+const IMAGE_DEFAULT_WIDTH = 200;
+const STAMP_FONT_SIZE = 28;
+const CHECKBOX_SIZE = 22;
+
 interface PageCanvasProps {
   pageNum: number;
   pdfDoc: PDFDocumentProxy;
@@ -59,8 +64,7 @@ export function PageCanvas({
   const liveCanvasJsonRef = useRef<{ json: string; zoom: number } | undefined>(savedAnnotations);
 
   // Track in-flight render to cancel on re-render
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const renderTaskRef = useRef<any>(null);
+  const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
 
   // Render PDF page to background canvas
   const renderPdf = useCallback(async () => {
@@ -118,7 +122,7 @@ export function PageCanvas({
 
     // Clear any leftover DOM from previous Fabric instance
     const wrapper = fabricWrapperRef.current;
-    wrapper.innerHTML = '';
+    wrapper.replaceChildren();
 
     // Create a fresh canvas element (not managed by React)
     const canvasEl = document.createElement('canvas');
@@ -192,9 +196,17 @@ export function PageCanvas({
         liveCanvasJsonRef.current = { json: rawJson, zoom: savedZoomRef.current };
         onAnnotationsChange?.(pageNum, rawJson, savedZoomRef.current);
       }
+      fc.off('object:modified');
+      fc.off('object:added');
+      fc.off('object:removed');
+      fc.off('path:created');
+      fc.off('mouse:down');
+      fc.off('mouse:move');
+      fc.off('mouse:up');
+      fc.clear();
       fc.dispose();
       fabricRef.current = null;
-      wrapper.innerHTML = '';
+      wrapper.replaceChildren();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageSize]);
@@ -295,7 +307,7 @@ export function PageCanvas({
           const stamp = new IText(stampType.toUpperCase(), {
             left: pt.x,
             top: pt.y,
-            fontSize: 28,
+            fontSize: STAMP_FONT_SIZE,
             fontFamily: 'Arial',
             fontWeight: 'bold',
             fill: color,
@@ -313,7 +325,7 @@ export function PageCanvas({
         canvas.on('mouse:down', (opt) => {
           if (opt.target) return;
           const pt = canvas.getScenePoint(opt.e);
-          const size = 22;
+          const size = CHECKBOX_SIZE;
 
           // Draw just the mark on a temp canvas with DPI awareness, then add as image
           const dpr = window.devicePixelRatio || 1;
@@ -412,7 +424,7 @@ export function PageCanvas({
     setSignatureOpen(false);
     if (!fabricRef.current) return;
     FabricImage.fromURL(dataUrl).then((img) => {
-      img.scaleToWidth(200);
+      img.scaleToWidth(IMAGE_DEFAULT_WIDTH);
       fabricRef.current?.add(img);
       fabricRef.current?.renderAll();
     });
@@ -432,7 +444,7 @@ export function PageCanvas({
     reader.onload = (event) => {
       const url = event.target?.result as string;
       FabricImage.fromURL(url).then((img) => {
-        img.scaleToWidth(200);
+        img.scaleToWidth(IMAGE_DEFAULT_WIDTH);
         fabricRef.current?.add(img);
         fabricRef.current?.renderAll();
       });
@@ -487,6 +499,7 @@ function setupDragRect(canvas: FabricCanvas, color: string, opacity: number) {
   let startX = 0;
   let startY = 0;
   let rect: Rect | null = null;
+  let rafId: number | null = null;
 
   canvas.on('mouse:down', (opt) => {
     if (opt.target) return;
@@ -503,9 +516,21 @@ function setupDragRect(canvas: FabricCanvas, color: string, opacity: number) {
     const w = pt.x - startX;
     const h = pt.y - startY;
     rect.set({ width: Math.abs(w), height: Math.abs(h), left: w < 0 ? pt.x : startX, top: h < 0 ? pt.y : startY });
-    canvas.renderAll();
+    if (!rafId) {
+      rafId = requestAnimationFrame(() => {
+        canvas.renderAll();
+        rafId = null;
+      });
+    }
   });
-  canvas.on('mouse:up', () => { drawing = false; rect = null; });
+  canvas.on('mouse:up', () => {
+    drawing = false;
+    rect = null;
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+  });
 }
 
 function setupDragShape(canvas: FabricCanvas, color: string, lineWidth: number) {
@@ -513,6 +538,7 @@ function setupDragShape(canvas: FabricCanvas, color: string, lineWidth: number) 
   let startX = 0;
   let startY = 0;
   let shape: FabricObject | null = null;
+  let rafId: number | null = null;
 
   canvas.on('mouse:down', (opt) => {
     if (opt.target) return;
@@ -534,9 +560,21 @@ function setupDragShape(canvas: FabricCanvas, color: string, lineWidth: number) 
       const r = Math.sqrt(w * w + h * h) / 2;
       (shape as Circle).set({ radius: r });
     }
-    canvas.renderAll();
+    if (!rafId) {
+      rafId = requestAnimationFrame(() => {
+        canvas.renderAll();
+        rafId = null;
+      });
+    }
   });
-  canvas.on('mouse:up', () => { drawing = false; shape = null; });
+  canvas.on('mouse:up', () => {
+    drawing = false;
+    shape = null;
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+  });
 }
 
 function setupDragArrow(canvas: FabricCanvas, color: string, lineWidth: number) {
@@ -544,6 +582,7 @@ function setupDragArrow(canvas: FabricCanvas, color: string, lineWidth: number) 
   let startX = 0;
   let startY = 0;
   let group: Group | null = null;
+  let rafId: number | null = null;
 
   canvas.on('mouse:down', (opt) => {
     if (opt.target) return;
@@ -582,9 +621,21 @@ function setupDragArrow(canvas: FabricCanvas, color: string, lineWidth: number) 
 
     group = new Group([line, arrowHead], { selectable: true });
     canvas.add(group);
-    canvas.renderAll();
+    if (!rafId) {
+      rafId = requestAnimationFrame(() => {
+        canvas.renderAll();
+        rafId = null;
+      });
+    }
   });
-  canvas.on('mouse:up', () => { drawing = false; group = null; });
+  canvas.on('mouse:up', () => {
+    drawing = false;
+    group = null;
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+  });
 }
 
 function setupDragCircle(canvas: FabricCanvas, color: string, lineWidth: number) {
@@ -592,6 +643,7 @@ function setupDragCircle(canvas: FabricCanvas, color: string, lineWidth: number)
   let startX = 0;
   let startY = 0;
   let circle: Circle | null = null;
+  let rafId: number | null = null;
 
   canvas.on('mouse:down', (opt) => {
     if (opt.target) return;
@@ -609,7 +661,19 @@ function setupDragCircle(canvas: FabricCanvas, color: string, lineWidth: number)
     const h = pt.y - startY;
     const r = Math.sqrt(w * w + h * h);
     circle.set({ radius: r });
-    canvas.renderAll();
+    if (!rafId) {
+      rafId = requestAnimationFrame(() => {
+        canvas.renderAll();
+        rafId = null;
+      });
+    }
   });
-  canvas.on('mouse:up', () => { drawing = false; circle = null; });
+  canvas.on('mouse:up', () => {
+    drawing = false;
+    circle = null;
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+  });
 }

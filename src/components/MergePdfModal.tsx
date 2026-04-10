@@ -214,15 +214,17 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
             </div>
           )}
 
-          {error && <div className="merge-error">{error}</div>}
+          {error && <div className="merge-error" role="alert" aria-live="assertive">{error}</div>}
         </div>
 
         <div className="merge-modal-footer">
+          {files.length < 2 && <span id="merge-hint" className="sr-only">Add at least 2 PDF files to merge</span>}
           <button className="signature-modal-btn cancel" onClick={onClose}>Cancel</button>
           <button
             className="signature-modal-btn save"
             disabled={files.length < 2 || merging}
             onClick={handleMergeAndDownload}
+            aria-describedby={files.length < 2 ? 'merge-hint' : undefined}
           >
             {merging ? 'Merging...' : 'Merge & Download'}
           </button>
@@ -230,6 +232,7 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
             className="signature-modal-btn save"
             disabled={files.length < 2 || merging}
             onClick={handleMergeAndOpen}
+            aria-describedby={files.length < 2 ? 'merge-hint' : undefined}
           >
             {merging ? 'Merging...' : 'Merge & Open'}
           </button>

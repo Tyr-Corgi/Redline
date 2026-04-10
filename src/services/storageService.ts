@@ -21,8 +21,14 @@ export interface SavedSession {
   savedAt: number; // Date.now()
 }
 
-function openDB(): Promise<IDBDatabase> {
+let persistentDB: IDBDatabase | null = null;
+
+function getDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
+    if (persistentDB) {
+      resolve(persistentDB);
+      return;
+    }
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -30,7 +36,11 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_NAME);
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      persistentDB = request.result;
+      persistentDB.onclose = () => { persistentDB = null; };
+      resolve(persistentDB);
+    };
     request.onerror = () => reject(request.error);
   });
 }
@@ -49,7 +59,7 @@ function validateSession(data: unknown): data is SavedSession {
 }
 
 export async function saveSession(session: SavedSession): Promise<void> {
-  const db = await openDB();
+  const db = await getDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
@@ -76,30 +86,29 @@ export async function saveSession(session: SavedSession): Promise<void> {
       }
     };
 
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.oncomplete = () => { resolve(); };
+    tx.onerror = () => { reject(tx.error); };
   });
 }
 
 export async function loadSession(): Promise<SavedSession | null> {
   try {
-    const db = await openDB();
+    const db = await getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
       const request = store.get(SESSION_KEY);
       request.onsuccess = () => {
-        db.close();
         const data = request.result;
         if (!data) { resolve(null); return; }
         if (!validateSession(data)) {
-          console.warn('Invalid session data in IndexedDB — ignoring');
+          console.warn('[Redline] Invalid session data in IndexedDB — ignoring');
           resolve(null);
           return;
         }
         resolve(data);
       };
-      request.onerror = () => { db.close(); reject(request.error); };
+      request.onerror = () => { reject(request.error); };
     });
   } catch {
     return null;
@@ -108,13 +117,13 @@ export async function loadSession(): Promise<SavedSession | null> {
 
 export async function clearSession(): Promise<void> {
   try {
-    const db = await openDB();
+    const db = await getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
       store.delete(SESSION_KEY);
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => { db.close(); reject(tx.error); };
+      tx.oncomplete = () => { resolve(); };
+      tx.onerror = () => { reject(tx.error); };
     });
   } catch {
     // Silently fail — clearing is best-effort
@@ -123,7 +132,7 @@ export async function clearSession(): Promise<void> {
 
 export async function listSessionBackups(): Promise<{ key: string; savedAt: number }[]> {
   try {
-    const db = await openDB();
+    const db = await getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
@@ -144,12 +153,11 @@ export async function listSessionBackups(): Promise<{ key: string; savedAt: numb
           cursor.continue();
         } else {
           backups.sort((a, b) => b.savedAt - a.savedAt);
-          db.close();
           resolve(backups);
         }
       };
 
-      cursorRequest.onerror = () => { db.close(); reject(cursorRequest.error); };
+      cursorRequest.onerror = () => { reject(cursorRequest.error); };
     });
   } catch {
     return [];
@@ -158,23 +166,22 @@ export async function listSessionBackups(): Promise<{ key: string; savedAt: numb
 
 export async function restoreSessionBackup(key: string): Promise<SavedSession | null> {
   try {
-    const db = await openDB();
+    const db = await getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
       const request = store.get(key);
       request.onsuccess = () => {
-        db.close();
         const data = request.result;
         if (!data) { resolve(null); return; }
         if (!validateSession(data)) {
-          console.warn('Invalid session backup data in IndexedDB — ignoring');
+          console.warn('[Redline] Invalid session backup data in IndexedDB — ignoring');
           resolve(null);
           return;
         }
         resolve(data);
       };
-      request.onerror = () => { db.close(); reject(request.error); };
+      request.onerror = () => { reject(request.error); };
     });
   } catch {
     return null;

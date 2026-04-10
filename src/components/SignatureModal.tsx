@@ -50,8 +50,28 @@ export function SignatureModal({ onSave, onCancel }: SignatureModalProps) {
     onSave(dataUrl);
   };
 
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      // Check if canvas has content
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const htmlCanvas = canvas.getElement();
+        const ctx = htmlCanvas.getContext('2d');
+        if (ctx) {
+          const imageData = ctx.getImageData(0, 0, htmlCanvas.width, htmlCanvas.height);
+          const hasContent = imageData.data.some((val, i) => i % 4 === 3 && val > 0);
+          if (hasContent) {
+            // Don't close - user has drawn something. They should use Cancel button explicitly.
+            return;
+          }
+        }
+      }
+      onCancel();
+    }
+  };
+
   return (
-    <div className="signature-modal" onClick={onCancel}>
+    <div className="signature-modal" onClick={handleBackdropClick}>
       <FocusTrap>
       <div className="signature-modal-content" role="dialog" aria-modal="true" aria-label="Draw Your Signature" onClick={(e) => e.stopPropagation()}>
         <div className="signature-modal-header">

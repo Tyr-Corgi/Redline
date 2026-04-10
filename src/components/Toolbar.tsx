@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, memo } from 'react';
 import type { Tool, ToolConfig } from '../types';
 import { Tooltip } from './Tooltip';
 
@@ -46,7 +46,7 @@ const tools: { tool: Tool; title: string; icon: string }[] = [
   { tool: 'eraser', title: 'Eraser — Click on any annotation to remove it', icon: 'M20 20H7L3 16l10-10 7 7v7zM10 10l4 4' },
 ];
 
-export default function Toolbar({
+function Toolbar({
   activeTool,
   toolConfig,
   currentPage,
@@ -74,7 +74,7 @@ export default function Toolbar({
   };
 
   return (
-    <div className="toolbar">
+    <div className="toolbar" role="toolbar" aria-label="PDF editing tools">
       {/* File */}
       <div className="toolbar-section">
         <input ref={fileInputRef} type="file" accept="application/pdf" onChange={handleFileChange} style={{ display: 'none' }} />
@@ -132,21 +132,21 @@ export default function Toolbar({
       <div className="toolbar-section">
         {['text', 'draw', 'shape', 'date', 'highlight', 'arrow', 'circle'].includes(activeTool) && (
           <div className="tool-config-item">
-            <label className="config-label">Color</label>
-            <input type="color" value={toolConfig.color} onChange={(e) => onToolConfigChange({ color: e.target.value })} className="color-input" />
+            <label htmlFor="tool-color" className="config-label">Color</label>
+            <input id="tool-color" type="color" value={toolConfig.color} onChange={(e) => onToolConfigChange({ color: e.target.value })} className="color-input" />
           </div>
         )}
         {['text', 'date'].includes(activeTool) && (
           <>
             <div className="tool-config-item">
-              <label className="config-label">Font</label>
-              <select value={toolConfig.fontFamily} onChange={(e) => onToolConfigChange({ fontFamily: e.target.value })} className="config-select">
+              <label htmlFor="tool-font-family" className="config-label">Font</label>
+              <select id="tool-font-family" value={toolConfig.fontFamily} onChange={(e) => onToolConfigChange({ fontFamily: e.target.value })} className="config-select">
                 {fontFamilies.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
               </select>
             </div>
             <div className="tool-config-item">
-              <label className="config-label">Size</label>
-              <select value={toolConfig.fontSize} onChange={(e) => onToolConfigChange({ fontSize: Number(e.target.value) })} className="config-select">
+              <label htmlFor="tool-font-size" className="config-label">Size</label>
+              <select id="tool-font-size" value={toolConfig.fontSize} onChange={(e) => onToolConfigChange({ fontSize: Number(e.target.value) })} className="config-select">
                 {fontSizes.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
@@ -155,6 +155,7 @@ export default function Toolbar({
                 className={`tool-btn format-btn ${toolConfig.bold ? 'active' : ''}`}
                 onClick={() => onToolConfigChange({ bold: !toolConfig.bold })}
                 title="Bold"
+                aria-label="Bold"
               >
                 <strong>B</strong>
               </button>
@@ -162,6 +163,7 @@ export default function Toolbar({
                 className={`tool-btn format-btn ${toolConfig.italic ? 'active' : ''}`}
                 onClick={() => onToolConfigChange({ italic: !toolConfig.italic })}
                 title="Italic"
+                aria-label="Italic"
               >
                 <em>I</em>
               </button>
@@ -169,6 +171,7 @@ export default function Toolbar({
                 className={`tool-btn format-btn ${toolConfig.underline ? 'active' : ''}`}
                 onClick={() => onToolConfigChange({ underline: !toolConfig.underline })}
                 title="Underline"
+                aria-label="Underline"
               >
                 <span style={{ textDecoration: 'underline' }}>U</span>
               </button>
@@ -177,16 +180,16 @@ export default function Toolbar({
         )}
         {['draw', 'shape', 'arrow', 'circle'].includes(activeTool) && (
           <div className="tool-config-item">
-            <label className="config-label">Width</label>
-            <select value={toolConfig.lineWidth} onChange={(e) => onToolConfigChange({ lineWidth: Number(e.target.value) })} className="config-select">
+            <label htmlFor="tool-line-width" className="config-label">Width</label>
+            <select id="tool-line-width" value={toolConfig.lineWidth} onChange={(e) => onToolConfigChange({ lineWidth: Number(e.target.value) })} className="config-select">
               {lineWidths.map((w) => <option key={w} value={w}>{w}px</option>)}
             </select>
           </div>
         )}
         {activeTool === 'highlight' && (
           <div className="tool-config-item">
-            <label className="config-label">Opacity</label>
-            <input type="range" min="0.1" max="1" step="0.1" value={toolConfig.opacity} onChange={(e) => onToolConfigChange({ opacity: Number(e.target.value) })} className="opacity-slider" />
+            <label htmlFor="tool-opacity" className="config-label">Opacity</label>
+            <input id="tool-opacity" type="range" min="0.1" max="1" step="0.1" value={toolConfig.opacity} onChange={(e) => onToolConfigChange({ opacity: Number(e.target.value) })} className="opacity-slider" aria-valuetext={`${Math.round((toolConfig.opacity || 0.3) * 100)} percent`} />
             <span className="opacity-value">{Math.round(toolConfig.opacity * 100)}%</span>
           </div>
         )}
@@ -283,7 +286,7 @@ export default function Toolbar({
         <button className="tool-btn" onClick={() => onZoomChange(Math.max(0.25, zoom - 0.25))} title="Zoom Out (-)" aria-label="Zoom Out">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="8" y1="11" x2="14" y2="11" /></svg>
         </button>
-        <select value={zoom} onChange={(e) => onZoomChange(Number(e.target.value))} className="zoom-select">
+        <select value={zoom} onChange={(e) => onZoomChange(Number(e.target.value))} className="zoom-select" aria-label={`Zoom level: ${Math.round(zoom * 100)}%`}>
           {zoomLevels.map((l) => <option key={l} value={l}>{Math.round(l * 100)}%</option>)}
         </select>
         <button className="tool-btn" onClick={() => onZoomChange(Math.min(4, zoom + 0.25))} title="Zoom In (+)" aria-label="Zoom In">
@@ -293,3 +296,5 @@ export default function Toolbar({
     </div>
   );
 }
+
+export default memo(Toolbar);

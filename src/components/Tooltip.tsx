@@ -12,8 +12,9 @@ export function Tooltip({ text, children, position = 'bottom', delay = 400 }: To
   const [coords, setCoords] = useState({ x: 0, y: 0 });
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const ref = useRef<HTMLDivElement>(null);
+  const tooltipId = useRef(`tooltip-${Math.random().toString(36).substr(2, 9)}`);
 
-  const show = useCallback((e: React.MouseEvent) => {
+  const show = useCallback((e: React.MouseEvent | React.FocusEvent) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = rect.left + rect.width / 2;
     const y = position === 'bottom' ? rect.bottom + 6 : rect.top - 6;
@@ -33,12 +34,16 @@ export function Tooltip({ text, children, position = 'bottom', delay = 400 }: To
       ref={ref}
       onMouseEnter={show}
       onMouseLeave={hide}
-      onFocus={hide}
+      onFocus={show}
+      onBlur={hide}
       style={{ display: 'inline-flex' }}
+      aria-describedby={visible ? tooltipId.current : undefined}
     >
       {children}
       {visible && (
         <div
+          id={tooltipId.current}
+          role="tooltip"
           className={`aurora-tooltip aurora-tooltip-${position}`}
           style={{
             position: 'fixed',

@@ -1,5 +1,4 @@
 import * as pdfjsLib from 'pdfjs-dist';
-import { PDFDocument, degrees } from 'pdf-lib';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type React from 'react';
 
@@ -10,11 +9,20 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 /** Maximum allowed PDF file size (50 MB) */
 const MAX_PDF_SIZE_BYTES = 50 * 1024 * 1024;
 
+async function validatePdfBytes(buffer: ArrayBuffer): Promise<boolean> {
+  if (buffer.byteLength < 5) return false;
+  const header = new TextDecoder().decode(buffer.slice(0, 5));
+  return header === '%PDF-';
+}
+
 export async function loadPdf(file: File): Promise<PDFDocumentProxy> {
   if (file.size > MAX_PDF_SIZE_BYTES) {
     throw new Error(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum allowed size is 50 MB.`);
   }
   const arrayBuffer = await file.arrayBuffer();
+  if (!await validatePdfBytes(arrayBuffer)) {
+    throw new Error('Invalid PDF file: missing PDF magic number header');
+  }
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
   return await loadingTask.promise;
 }
@@ -22,6 +30,9 @@ export async function loadPdf(file: File): Promise<PDFDocumentProxy> {
 export async function loadPdfFromBytes(bytes: ArrayBuffer): Promise<PDFDocumentProxy> {
   if (bytes.byteLength > MAX_PDF_SIZE_BYTES) {
     throw new Error(`PDF too large (${(bytes.byteLength / 1024 / 1024).toFixed(1)} MB). Maximum allowed size is 50 MB.`);
+  }
+  if (!await validatePdfBytes(bytes)) {
+    throw new Error('Invalid PDF file: missing PDF magic number header');
   }
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes) });
   return await loadingTask.promise;
@@ -60,7 +71,7 @@ export async function renderPage(
  * This handles all annotation types uniformly by flattening the canvas.
  */
 async function embedCanvasImage(
-  pdfDoc: Awaited<ReturnType<typeof PDFDocument.load>>,
+  pdfDoc: any,
   pageIndex: number,
   canvasDataUrl: string,
   pageWidth: number,
@@ -94,6 +105,7 @@ export async function savePdfWithCanvasOverlays(
   pageRotations: Record<number, number> = {},
   deletedPages: number[] = [],
 ): Promise<Uint8Array> {
+  const { PDFDocument, degrees } = await import('pdf-lib');
   const arrayBuffer = await originalFile.arrayBuffer();
   const pdfDoc = await PDFDocument.load(arrayBuffer);
 
@@ -156,6 +168,7 @@ export function downloadPdf(pdfBytes: Uint8Array, filename: string): void {
 export async function mergePdfs(
   files: { bytes: ArrayBuffer; name: string }[],
 ): Promise<Uint8Array> {
+  const { PDFDocument } = await import('pdf-lib');
   const merged = await PDFDocument.create();
 
   for (const { bytes } of files) {
@@ -174,6 +187,7 @@ export async function mergePdfs(
  * Get the page count of a PDF from raw bytes (used for merge preview).
  */
 export async function getPageCount(bytes: ArrayBuffer): Promise<number> {
+  const { PDFDocument } = await import('pdf-lib');
   const doc = await PDFDocument.load(bytes);
   return doc.getPageCount();
 }

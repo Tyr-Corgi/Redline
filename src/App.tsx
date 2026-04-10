@@ -13,6 +13,12 @@ type FabricCanvasWithOverlay = FabricCanvas & {
 };
 
 export default function App() {
+  // Named constants
+  const AUTO_SAVE_DEBOUNCE_MS = 2000;
+  const SAVE_STATUS_DELAY_MS = 900;
+  const SAVE_STATUS_RESET_MS = 3500;
+  const PRINT_DPI_SCALE = 2;
+
   const {
     file,
     pdfDoc,
@@ -50,12 +56,27 @@ export default function App() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [, setRestoringSession] = useState(true);
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'info' } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fabricCanvasRef = useRef<FabricCanvasWithOverlay | null>(null);
   const pdfBytesRef = useRef<ArrayBuffer | null>(null);
-  const autoSaverRef = useRef(createDebouncedSaver(800));
+  const autoSaverRef = useRef(createDebouncedSaver(AUTO_SAVE_DEBOUNCE_MS));
   const latestStateRef = useRef({ file, currentPage, zoom });
+  const zoomRafRef = useRef<number | null>(null);
   latestStateRef.current = { file, currentPage, zoom };
+
+  // Toast auto-dismiss
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // Dynamic document title
+  useEffect(() => {
+    document.title = file ? `${file.name} — Redline` : 'Redline';
+  }, [file]);
 
   // Auto-restore session from IndexedDB on mount
   useEffect(() => {
@@ -86,7 +107,7 @@ export default function App() {
         await openFile(selectedFile);
       } catch (error) {
         console.error('Failed to open PDF:', error);
-        alert(`Failed to open PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        setToast({ message: `Failed to open PDF: ${error instanceof Error ? error.message : 'Unknown error'}`, type: 'error' });
       }
     }
   }, [openFile]);
@@ -101,7 +122,19 @@ export default function App() {
 
   // Start a new project — clear everything and wipe the saved session
   const handleNewProject = useCallback(async () => {
-    if (file && !window.confirm('Start a new project? Any unsaved changes will be lost.')) return;
+    if (file) {
+      setConfirmAction({
+        message: 'Start a new project? Any unsaved changes will be lost.',
+        onConfirm: async () => {
+          autoSaverRef.current.cancel();
+          pdfBytesRef.current = null;
+          fabricCanvasRef.current = null;
+          clearFile();
+          await clearSession();
+        },
+      });
+      return;
+    }
     autoSaverRef.current.cancel();
     pdfBytesRef.current = null;
     fabricCanvasRef.current = null;
@@ -130,8 +163,8 @@ export default function App() {
       zoom: currentZoom,
       savedAt: Date.now(),
     });
-    setTimeout(() => setSaveStatus('saved'), 900);
-    setTimeout(() => setSaveStatus((s) => s === 'saved' ? 'idle' : s), 3500);
+    setTimeout(() => setSaveStatus('saved'), SAVE_STATUS_DELAY_MS);
+    setTimeout(() => setSaveStatus((s) => s === 'saved' ? 'idle' : s), SAVE_STATUS_RESET_MS);
   }, [getAllPageAnnotations]);
 
   // Track page changes for auto-save (PageCanvas cleanup handles saving
@@ -249,7 +282,7 @@ export default function App() {
       downloadPdf(pdfBytes, name);
     } catch (error) {
       console.error('Save error:', error);
-      alert(`Failed to save PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setToast({ message: `Failed to save PDF: ${error instanceof Error ? error.message : 'Unknown error'}`, type: 'error' });
     }
   }, [file, pdfDoc, currentPage, zoom, pageRotations, deletedPages, savePageAnnotations, getAllPageAnnotations]);
 
@@ -267,16 +300,26 @@ export default function App() {
     const printWindow = window.open('', '_blank', 'noopener');
     if (!printWindow) { window.print(); return; }
 
-    printWindow.document.write(`<!DOCTYPE html><html><head><title>Print PDF</title>
-      <style>
-        * { margin: 0; padding: 0; }
-        body { background: white; }
-        .print-page { position: relative; page-break-after: always; }
-        .print-page:last-child { page-break-after: auto; }
-        .print-page img { display: block; }
-        .overlay-img { position: absolute; top: 0; left: 0; pointer-events: none; }
-        @media print { .print-page { page-break-after: always; } .print-page:last-child { page-break-after: auto; } }
-      </style></head><body>`);
+    const doc = printWindow.document;
+    doc.open();
+    const html = doc.createElement('html');
+    const head = doc.createElement('head');
+    const title = doc.createElement('title');
+    title.textContent = 'Print PDF';
+    head.appendChild(title);
+    const style = doc.createElement('style');
+    style.textContent = `
+      * { margin: 0; padding: 0; }
+      body { background: white; }
+      .print-page { position: relative; page-break-after: always; }
+      .print-page:last-child { page-break-after: auto; }
+      .print-page img { display: block; }
+      .overlay-img { position: absolute; top: 0; left: 0; pointer-events: none; }
+      @media print { .print-page { page-break-after: always; } .print-page:last-child { page-break-after: auto; } }
+    `;
+    head.appendChild(style);
+    html.appendChild(head);
+    const body = doc.createElement('body');
 
     try {
       const { Canvas: TempFabric } = await import('fabric');
@@ -287,8 +330,8 @@ export default function App() {
         const page = await pdfDoc.getPage(p);
         // Render at scale 1.0 for base dimensions
         const baseViewport = page.getViewport({ scale: 1.0, rotation: rot });
-        // Use 1.5x for print quality
-        const printViewport = page.getViewport({ scale: 1.5, rotation: rot });
+        // Use PRINT_DPI_SCALE for print quality
+        const printViewport = page.getViewport({ scale: PRINT_DPI_SCALE, rotation: rot });
 
         // Render PDF page at print quality
         const pdfCanvas = document.createElement('canvas');
@@ -301,9 +344,15 @@ export default function App() {
         const cssW = baseViewport.width;
         const cssH = baseViewport.height;
 
-        printWindow.document.write(`<div class="print-page" style="width:${cssW}px;height:${cssH}px;">`);
+        const printPageDiv = doc.createElement('div');
+        printPageDiv.className = 'print-page';
+        printPageDiv.style.cssText = `width:${cssW}px;height:${cssH}px;`;
+
         const pdfDataUrl = pdfCanvas.toDataURL('image/png');
-        printWindow.document.write(`<img src="${pdfDataUrl}" style="width:${cssW}px;height:${cssH}px;" />`);
+        const pdfImg = doc.createElement('img');
+        pdfImg.src = pdfDataUrl;
+        pdfImg.style.cssText = `width:${cssW}px;height:${cssH}px;`;
+        printPageDiv.appendChild(pdfImg);
 
         // Render annotation overlay at stored zoom dimensions (no JSON transform)
         const annotEntry = allAnnotations.get(p);
@@ -313,7 +362,7 @@ export default function App() {
             if (parsed.objects && parsed.objects.length > 0) {
               // Render at stored zoom dimensions — matches raw JSON coords
               const storedViewport = page.getViewport({ scale: annotEntry.zoom, rotation: rot });
-              const tempCanvas = document.createElement('canvas');
+              const tempCanvas = doc.createElement('canvas');
               const tc = new TempFabric(tempCanvas, {
                 width: storedViewport.width,
                 height: storedViewport.height,
@@ -324,15 +373,20 @@ export default function App() {
               const overlayUrl = tc.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
               tc.dispose();
               // CSS stretches the overlay image to match the base viewport
-              printWindow.document.write(`<img class="overlay-img" src="${overlayUrl}" style="width:${cssW}px;height:${cssH}px;" />`);
+              const overlayImg = doc.createElement('img');
+              overlayImg.className = 'overlay-img';
+              overlayImg.src = overlayUrl;
+              overlayImg.style.cssText = `width:${cssW}px;height:${cssH}px;`;
+              printPageDiv.appendChild(overlayImg);
             }
           } catch { /* skip annotation errors */ }
         }
-        printWindow.document.write('</div>');
+        body.appendChild(printPageDiv);
       }
 
-      printWindow.document.write('</body></html>');
-      printWindow.document.close();
+      html.appendChild(body);
+      doc.appendChild(html);
+      doc.close();
       // Wait for images to load then trigger print
       printWindow.onload = () => {
         setTimeout(() => { printWindow.print(); }, 300);
@@ -340,9 +394,9 @@ export default function App() {
     } catch (error) {
       console.error('Print error:', error);
       printWindow.close();
-      alert(`Print preparation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setToast({ message: `Print preparation failed: ${error instanceof Error ? error.message : 'Unknown error'}`, type: 'error' });
     }
-  }, [pdfDoc, currentPage, zoom, pageRotations, deletedPages, savePageAnnotations, getAllPageAnnotations]);
+  }, [pdfDoc, currentPage, zoom, pageRotations, deletedPages, savePageAnnotations, getAllPageAnnotations, PRINT_DPI_SCALE]);
 
   // Warn before closing tab with unsaved work & flush auto-save
   useEffect(() => {
@@ -428,7 +482,11 @@ export default function App() {
         const currentDistance = getDistance(e.touches);
         const scale = currentDistance / initialDistance;
         const newZoom = Math.round(Math.max(0.25, Math.min(4, initialZoom * scale)) * 100) / 100;
-        setZoom(newZoom);
+        if (zoomRafRef.current) cancelAnimationFrame(zoomRafRef.current);
+        zoomRafRef.current = requestAnimationFrame(() => {
+          setZoom(newZoom);
+          zoomRafRef.current = null;
+        });
       }
     };
 
@@ -442,6 +500,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <a href="#document-area" className="skip-link">Skip to document</a>
       <Toolbar
         activeTool={activeTool}
         toolConfig={toolConfig}
@@ -495,7 +554,7 @@ export default function App() {
       )}
 
       {saveStatus !== 'idle' && (
-        <div className={`save-indicator ${saveStatus}`}>
+        <div className={`save-indicator ${saveStatus}`} role="status" aria-live="polite">
           {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
         </div>
       )}
@@ -512,7 +571,7 @@ export default function App() {
             onDeletePage={deletePage}
           />
         )}
-        <div ref={documentAreaRef} className="document-area" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} onWheel={(e) => {
+        <div id="document-area" ref={documentAreaRef} className="document-area" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} onWheel={(e) => {
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
             const delta = e.deltaY > 0 ? -0.1 : 0.1;
@@ -573,6 +632,25 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {toast && (
+        <div className="toast-notification" role="alert" aria-live="assertive">
+          {toast.message}
+          <button onClick={() => setToast(null)} aria-label="Dismiss">&times;</button>
+        </div>
+      )}
+
+      {confirmAction && (
+        <div className="confirm-overlay" role="alertdialog" aria-modal="true" aria-label="Confirm action">
+          <div className="confirm-dialog">
+            <p>{confirmAction.message}</p>
+            <div className="confirm-actions">
+              <button className="confirm-btn cancel" onClick={() => setConfirmAction(null)}>Cancel</button>
+              <button className="confirm-btn ok" onClick={() => { confirmAction.onConfirm(); setConfirmAction(null); }}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -21,7 +21,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('PDF Editor error:', error, errorInfo);
+    console.error('[Redline] Error:', error, errorInfo);
   }
 
   render() {
