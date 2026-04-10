@@ -31,6 +31,7 @@ interface PageCanvasProps {
   onCanvasReady?: (canvas: FabricCanvas) => void;
   onModified?: () => void;
   onAnnotationsChange?: (pageNum: number, json: string, zoom: number) => void;
+  onToast?: (message: string, type: 'error' | 'info') => void;
 }
 
 export function PageCanvas({
@@ -44,6 +45,7 @@ export function PageCanvas({
   onCanvasReady,
   onModified,
   onAnnotationsChange,
+  onToast,
 }: PageCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -212,9 +214,17 @@ export function PageCanvas({
   }, [pageSize]);
 
   // Configure tool behavior on tool/config change
+  const dragRafRef = useRef<number | null>(null);
+
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas) return;
+
+    // Cancel any in-flight RAF from previous tool
+    if (dragRafRef.current) {
+      cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = null;
+    }
 
     canvas.isDrawingMode = false;
     canvas.selection = activeTool === 'select';
@@ -276,19 +286,19 @@ export function PageCanvas({
       }
 
       case 'highlight':
-        setupDragRect(canvas, toolConfig.color || '#FFFF00', toolConfig.opacity);
+        setupDragRect(canvas, toolConfig.color || '#FFFF00', toolConfig.opacity, dragRafRef);
         break;
 
       case 'redact':
-        setupDragRect(canvas, '#000000', 1.0);
+        setupDragRect(canvas, '#000000', 1.0, dragRafRef);
         break;
 
       case 'arrow':
-        setupDragArrow(canvas, toolConfig.color, toolConfig.lineWidth);
+        setupDragArrow(canvas, toolConfig.color, toolConfig.lineWidth, dragRafRef);
         break;
 
       case 'circle':
-        setupDragCircle(canvas, toolConfig.color, toolConfig.lineWidth);
+        setupDragCircle(canvas, toolConfig.color, toolConfig.lineWidth, dragRafRef);
         break;
 
       case 'stamp':
@@ -389,7 +399,7 @@ export function PageCanvas({
         break;
 
       case 'shape':
-        setupDragShape(canvas, toolConfig.color, toolConfig.lineWidth);
+        setupDragShape(canvas, toolConfig.color, toolConfig.lineWidth, dragRafRef);
         break;
 
       case 'eraser':
@@ -417,6 +427,14 @@ export function PageCanvas({
         break;
     }
     prevActiveToolRef.current = activeTool;
+
+    return () => {
+      // Cancel any in-flight drag RAF on cleanup (tool change or unmount)
+      if (dragRafRef.current) {
+        cancelAnimationFrame(dragRafRef.current);
+        dragRafRef.current = null;
+      }
+    };
   }, [activeTool, toolConfig, onModified]);
 
   // Signature save
@@ -436,7 +454,7 @@ export function PageCanvas({
     const file = e.target.files?.[0];
     if (!file || !fabricRef.current) return;
     if (file.size > MAX_IMAGE_SIZE_BYTES) {
-      alert(`Image too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum size is 10 MB.`);
+      onToast?.(`Image too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum size is 10 MB.`, 'error');
       e.target.value = '';
       return;
     }
@@ -476,10 +494,13 @@ export function PageCanvas({
     <div ref={containerRef} className="page-container" style={{ width: pageSize?.width, height: pageSize?.height }}>
       <canvas
         ref={pdfCanvasRef}
+        aria-label={`PDF background, page ${pageNum}`}
         style={{ position: 'absolute', top: 0, left: 0, zIndex: 1 }}
       />
       <div
         ref={fabricWrapperRef}
+        role="img"
+        aria-label={`Annotation layer, page ${pageNum}`}
         style={{ position: 'absolute', top: 0, left: 0, zIndex: 2, width: pageSize?.width, height: pageSize?.height }}
       />
       <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
@@ -494,12 +515,11 @@ export function PageCanvas({
 
 // --- helpers ---
 
-function setupDragRect(canvas: FabricCanvas, color: string, opacity: number) {
+function setupDragRect(canvas: FabricCanvas, color: string, opacity: number, sharedRafRef: React.RefObject<number | null>) {
   let drawing = false;
   let startX = 0;
   let startY = 0;
   let rect: Rect | null = null;
-  let rafId: number | null = null;
 
   canvas.on('mouse:down', (opt) => {
     if (opt.target) return;
@@ -516,29 +536,28 @@ function setupDragRect(canvas: FabricCanvas, color: string, opacity: number) {
     const w = pt.x - startX;
     const h = pt.y - startY;
     rect.set({ width: Math.abs(w), height: Math.abs(h), left: w < 0 ? pt.x : startX, top: h < 0 ? pt.y : startY });
-    if (!rafId) {
-      rafId = requestAnimationFrame(() => {
+    if (!sharedRafRef.current) {
+      sharedRafRef.current = requestAnimationFrame(() => {
         canvas.renderAll();
-        rafId = null;
+        sharedRafRef.current = null;
       });
     }
   });
   canvas.on('mouse:up', () => {
     drawing = false;
     rect = null;
-    if (rafId) {
-      cancelAnimationFrame(rafId);
-      rafId = null;
+    if (sharedRafRef.current) {
+      cancelAnimationFrame(sharedRafRef.current);
+      sharedRafRef.current = null;
     }
   });
 }
 
-function setupDragShape(canvas: FabricCanvas, color: string, lineWidth: number) {
+function setupDragShape(canvas: FabricCanvas, color: string, lineWidth: number, sharedRafRef: React.RefObject<number | null>) {
   let drawing = false;
   let startX = 0;
   let startY = 0;
   let shape: FabricObject | null = null;
-  let rafId: number | null = null;
 
   canvas.on('mouse:down', (opt) => {
     if (opt.target) return;
@@ -560,29 +579,28 @@ function setupDragShape(canvas: FabricCanvas, color: string, lineWidth: number) 
       const r = Math.sqrt(w * w + h * h) / 2;
       (shape as Circle).set({ radius: r });
     }
-    if (!rafId) {
-      rafId = requestAnimationFrame(() => {
+    if (!sharedRafRef.current) {
+      sharedRafRef.current = requestAnimationFrame(() => {
         canvas.renderAll();
-        rafId = null;
+        sharedRafRef.current = null;
       });
     }
   });
   canvas.on('mouse:up', () => {
     drawing = false;
     shape = null;
-    if (rafId) {
-      cancelAnimationFrame(rafId);
-      rafId = null;
+    if (sharedRafRef.current) {
+      cancelAnimationFrame(sharedRafRef.current);
+      sharedRafRef.current = null;
     }
   });
 }
 
-function setupDragArrow(canvas: FabricCanvas, color: string, lineWidth: number) {
+function setupDragArrow(canvas: FabricCanvas, color: string, lineWidth: number, sharedRafRef: React.RefObject<number | null>) {
   let drawing = false;
   let startX = 0;
   let startY = 0;
   let group: Group | null = null;
-  let rafId: number | null = null;
 
   canvas.on('mouse:down', (opt) => {
     if (opt.target) return;
@@ -621,29 +639,28 @@ function setupDragArrow(canvas: FabricCanvas, color: string, lineWidth: number) 
 
     group = new Group([line, arrowHead], { selectable: true });
     canvas.add(group);
-    if (!rafId) {
-      rafId = requestAnimationFrame(() => {
+    if (!sharedRafRef.current) {
+      sharedRafRef.current = requestAnimationFrame(() => {
         canvas.renderAll();
-        rafId = null;
+        sharedRafRef.current = null;
       });
     }
   });
   canvas.on('mouse:up', () => {
     drawing = false;
     group = null;
-    if (rafId) {
-      cancelAnimationFrame(rafId);
-      rafId = null;
+    if (sharedRafRef.current) {
+      cancelAnimationFrame(sharedRafRef.current);
+      sharedRafRef.current = null;
     }
   });
 }
 
-function setupDragCircle(canvas: FabricCanvas, color: string, lineWidth: number) {
+function setupDragCircle(canvas: FabricCanvas, color: string, lineWidth: number, sharedRafRef: React.RefObject<number | null>) {
   let drawing = false;
   let startX = 0;
   let startY = 0;
   let circle: Circle | null = null;
-  let rafId: number | null = null;
 
   canvas.on('mouse:down', (opt) => {
     if (opt.target) return;
@@ -661,19 +678,19 @@ function setupDragCircle(canvas: FabricCanvas, color: string, lineWidth: number)
     const h = pt.y - startY;
     const r = Math.sqrt(w * w + h * h);
     circle.set({ radius: r });
-    if (!rafId) {
-      rafId = requestAnimationFrame(() => {
+    if (!sharedRafRef.current) {
+      sharedRafRef.current = requestAnimationFrame(() => {
         canvas.renderAll();
-        rafId = null;
+        sharedRafRef.current = null;
       });
     }
   });
   canvas.on('mouse:up', () => {
     drawing = false;
     circle = null;
-    if (rafId) {
-      cancelAnimationFrame(rafId);
-      rafId = null;
+    if (sharedRafRef.current) {
+      cancelAnimationFrame(sharedRafRef.current);
+      sharedRafRef.current = null;
     }
   });
 }

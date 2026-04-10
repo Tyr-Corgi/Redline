@@ -142,6 +142,29 @@ export default function App() {
     await clearSession();
   }, [file, clearFile]);
 
+  // Apply tool config changes to both state and any selected Fabric object
+  const handleToolConfigChange = useCallback((config: Parameters<typeof setToolConfig>[0]) => {
+    setToolConfig(config);
+    if (!fabricCanvasRef.current) return;
+    const obj = fabricCanvasRef.current.getActiveObject();
+    if (!obj) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const o = obj as any;
+    const isText = 'fontSize' in obj;
+    if (isText) {
+      if (config.fontSize !== undefined) o.set('fontSize', config.fontSize);
+      if (config.fontFamily !== undefined) o.set('fontFamily', config.fontFamily);
+      if (config.bold !== undefined) o.set('fontWeight', config.bold ? 'bold' : 'normal');
+      if (config.italic !== undefined) o.set('fontStyle', config.italic ? 'italic' : 'normal');
+      if (config.underline !== undefined) o.set('underline', config.underline);
+    }
+    if (config.color !== undefined) {
+      o.set('fill', config.color);
+      if (isText) o.set('stroke', config.color);
+    }
+    fabricCanvasRef.current.renderAll();
+  }, [setToolConfig]);
+
   // Trigger debounced auto-save to IndexedDB
   const triggerAutoSave = useCallback(() => {
     const { file: currentFile, currentPage: page, zoom: currentZoom } = latestStateRef.current;
@@ -516,28 +539,7 @@ export default function App() {
         onPrint={handlePrint}
         onMergePdfs={() => setShowMergeModal(true)}
         onToolChange={setTool}
-        onToolConfigChange={(config) => {
-          setToolConfig(config);
-          if (!fabricCanvasRef.current) return;
-          const obj = fabricCanvasRef.current.getActiveObject();
-          if (!obj) return;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const o = obj as any;
-          const isText = 'fontSize' in obj;
-          // Apply text properties live to selected text object
-          if (isText) {
-            if (config.fontSize !== undefined) o.set('fontSize', config.fontSize);
-            if (config.fontFamily !== undefined) o.set('fontFamily', config.fontFamily);
-            if (config.bold !== undefined) o.set('fontWeight', config.bold ? 'bold' : 'normal');
-            if (config.italic !== undefined) o.set('fontStyle', config.italic ? 'italic' : 'normal');
-            if (config.underline !== undefined) o.set('underline', config.underline);
-          }
-          if (config.color !== undefined) {
-            o.set('fill', config.color);
-            if (isText) o.set('stroke', config.color);
-          }
-          fabricCanvasRef.current.renderAll();
-        }}
+        onToolConfigChange={handleToolConfigChange}
         onPageChange={setPage}
         onZoomChange={setZoom}
         onUndo={undo}
@@ -569,6 +571,7 @@ export default function App() {
             onRotatePage={rotatePage}
             deletedPages={deletedPages}
             onDeletePage={deletePage}
+            onConfirmDelete={(msg, onConfirm) => setConfirmAction({ message: msg, onConfirm })}
           />
         )}
         <div id="document-area" ref={documentAreaRef} className="document-area" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} onWheel={(e) => {
@@ -628,6 +631,7 @@ export default function App() {
                 savePageAnnotations(page, json, annotZoom);
                 triggerAutoSave();
               }}
+              onToast={(msg, type) => setToast({ message: msg, type })}
             />
           )}
         </div>

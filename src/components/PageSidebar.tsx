@@ -9,6 +9,7 @@ interface PageSidebarProps {
   onRotatePage: (page: number) => void;
   deletedPages: number[];
   onDeletePage: (page: number) => void;
+  onConfirmDelete?: (message: string, onConfirm: () => void) => void;
 }
 
 function PageSidebarComponent({
@@ -18,7 +19,8 @@ function PageSidebarComponent({
   pageRotations,
   onRotatePage,
   deletedPages,
-  onDeletePage
+  onDeletePage,
+  onConfirmDelete
 }: PageSidebarProps) {
   const visiblePages = Array.from({ length: pdfDoc.numPages }, (_, i) => i + 1)
     .filter(pageNum => !deletedPages.includes(pageNum));
@@ -57,6 +59,7 @@ function PageSidebarComponent({
             rotation={pageRotations[pageNum] || 0}
             onRotate={() => onRotatePage(pageNum)}
             onDelete={visiblePages.length > 1 ? () => onDeletePage(pageNum) : undefined}
+            onConfirmDelete={onConfirmDelete}
             observer={observerRef.current}
             isVisible={visibleThumbnails.has(pageNum)}
           />
@@ -68,7 +71,7 @@ function PageSidebarComponent({
 
 export const PageSidebar = memo(PageSidebarComponent);
 
-function PageThumbnail({ pdfDoc, pageNum, isActive, onClick, rotation, onRotate, onDelete, observer, isVisible }: {
+function PageThumbnail({ pdfDoc, pageNum, isActive, onClick, rotation, onRotate, onDelete, onConfirmDelete, observer, isVisible }: {
   pdfDoc: PDFDocumentProxy;
   pageNum: number;
   isActive: boolean;
@@ -76,6 +79,7 @@ function PageThumbnail({ pdfDoc, pageNum, isActive, onClick, rotation, onRotate,
   rotation: number;
   onRotate: () => void;
   onDelete?: () => void;
+  onConfirmDelete?: (message: string, onConfirm: () => void) => void;
   observer: IntersectionObserver | null;
   isVisible: boolean;
 }) {
@@ -134,10 +138,13 @@ function PageThumbnail({ pdfDoc, pageNum, isActive, onClick, rotation, onRotate,
 
   const handleDelete = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (onDelete && window.confirm(`Delete page ${pageNum}?`)) {
+    if (!onDelete) return;
+    if (onConfirmDelete) {
+      onConfirmDelete(`Delete page ${pageNum}?`, onDelete);
+    } else {
       onDelete();
     }
-  }, [onDelete, pageNum]);
+  }, [onDelete, onConfirmDelete, pageNum]);
 
   const handleRotate = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
