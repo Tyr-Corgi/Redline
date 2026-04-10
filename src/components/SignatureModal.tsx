@@ -73,12 +73,13 @@ export function SignatureModal({ onSave, onCancel }: SignatureModalProps) {
   return (
     <div className="signature-modal" onClick={handleBackdropClick}>
       <FocusTrap>
-      <div className="signature-modal-content" role="dialog" aria-modal="true" aria-label="Draw Your Signature" onClick={(e) => e.stopPropagation()}>
+      <div className="signature-modal-content" role="dialog" aria-modal="true" aria-labelledby="signature-modal-title" aria-describedby="signature-modal-instructions" onClick={(e) => e.stopPropagation()}>
+        <p id="signature-modal-instructions" className="sr-only">Press Escape to close this dialog.</p>
         <div className="signature-modal-header">
-          <h3>Draw Your Signature</h3>
+          <h3 id="signature-modal-title">Draw Your Signature</h3>
           <button className="signature-modal-close" onClick={onCancel}>✕</button>
         </div>
-        <div className="signature-canvas-wrapper">
+        <div className="signature-canvas-wrapper" aria-label="Signature drawing area. Use mouse or touch to draw your signature.">
           <canvas id={canvasId} />
         </div>
         <div className="signature-modal-actions">

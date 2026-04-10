@@ -10,9 +10,23 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 const MAX_PDF_SIZE_BYTES = 50 * 1024 * 1024;
 
 async function validatePdfBytes(buffer: ArrayBuffer): Promise<boolean> {
-  if (buffer.byteLength < 5) return false;
+  // Check minimum size (header + some content)
+  if (buffer.byteLength < 100) return false;
+
+  // Check PDF magic number
   const header = new TextDecoder().decode(buffer.slice(0, 5));
-  return header === '%PDF-';
+  if (header !== '%PDF-') return false;
+
+  // Check for EOF marker near end of file (last 1024 bytes)
+  const tailSize = Math.min(1024, buffer.byteLength);
+  const tail = new TextDecoder().decode(buffer.slice(buffer.byteLength - tailSize));
+  if (!tail.includes('%%EOF')) return false;
+
+  // Check for cross-reference table marker
+  const content = new TextDecoder().decode(buffer);
+  if (!content.includes('xref') && !content.includes('startxref')) return false;
+
+  return true;
 }
 
 export async function loadPdf(file: File): Promise<PDFDocumentProxy> {
@@ -71,7 +85,8 @@ export async function renderPage(
  * This handles all annotation types uniformly by flattening the canvas.
  */
 async function embedCanvasImage(
-  pdfDoc: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  pdfDoc: any, // pdf-lib PDFDocument - typed as any due to dynamic import
   pageIndex: number,
   canvasDataUrl: string,
   pageWidth: number,

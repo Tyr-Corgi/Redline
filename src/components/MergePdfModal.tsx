@@ -121,9 +121,10 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
   return (
     <div className="merge-modal-overlay" onClick={onClose}>
       <FocusTrap>
-      <div className="merge-modal" role="dialog" aria-modal="true" aria-label="Merge PDFs" onClick={(e) => e.stopPropagation()}>
+      <div className="merge-modal" role="dialog" aria-modal="true" aria-labelledby="merge-modal-title" aria-describedby="merge-modal-instructions" onClick={(e) => e.stopPropagation()}>
+        <p id="merge-modal-instructions" className="sr-only">Press Escape to close this dialog.</p>
         <div className="merge-modal-header">
-          <h3>Merge PDFs</h3>
+          <h3 id="merge-modal-title">Merge PDFs</h3>
           <button className="signature-modal-close" onClick={onClose}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -163,9 +164,9 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
 
           {/* File list */}
           {files.length > 0 && (
-            <div className="merge-file-list">
+            <ol className="merge-file-list" role="list">
               {files.map((entry, idx) => (
-                <div
+                <li
                   key={entry.id}
                   className={`merge-file-item ${dragIdx === idx ? 'dragging' : ''} ${dragOverIdx === idx ? 'drag-target' : ''}`}
                   draggable
@@ -202,9 +203,9 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
                   <button className="merge-file-remove" onClick={() => removeFile(entry.id)} title="Remove">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                   </button>
-                </div>
+                </li>
               ))}
-            </div>
+            </ol>
           )}
 
           {/* Summary */}

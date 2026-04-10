@@ -11,7 +11,7 @@
   --bg-active: #4f8cff;
   --bg-active-hover: #3a7bef;
   --text-primary: #e8e8f0;
-  --text-secondary: #a8a8c0;
+  --text-secondary: #b4b4cc;
   --text-muted: #8585a0;
   --border-subtle: #3a3a52;
   --border-light: #4a4a65;
@@ -202,7 +202,7 @@ body {
 .tool-btn.active {
   background: var(--bg-active);
   color: #ffffff;
-  box-shadow: var(--shadow-glow);
+  box-shadow: var(--shadow-glow), inset 0 -2px 0 var(--text-primary);
   transform: scale(1.02);
 }
 
@@ -443,7 +443,7 @@ body {
 .page-thumbnail.active {
   border-color: var(--accent);
   background: rgba(79, 140, 255, 0.08);
-  box-shadow: 0 0 16px var(--accent-glow);
+  box-shadow: 0 0 16px var(--accent-glow), inset 3px 0 0 var(--accent);
 }
 
 .page-thumbnail:focus-visible {

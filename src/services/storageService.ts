@@ -19,6 +19,8 @@ export interface SavedSession {
   currentPage: number;
   zoom: number;
   savedAt: number; // Date.now()
+  /** PDF fingerprint (byte length + first/last 16 bytes) to detect unchanged PDFs */
+  pdfBytesHash?: string;
 }
 
 let persistentDB: IDBDatabase | null = null;
@@ -45,6 +47,37 @@ function getDB(): Promise<IDBDatabase> {
   });
 }
 
+/**
+ * Validate annotation JSON before passing to Fabric.js loadFromJSON.
+ * Checks for valid structure and rejects suspicious properties.
+ */
+export function validateAnnotationJson(json: string): boolean {
+  if (!json) return true; // Empty is valid (no annotations)
+
+  try {
+    const parsed = JSON.parse(json);
+
+    // Must have objects array
+    if (!parsed || typeof parsed !== 'object') return false;
+    if (!Array.isArray(parsed.objects)) return false;
+
+    // Each object must have a type string (Fabric.js requirement)
+    for (const obj of parsed.objects) {
+      if (!obj || typeof obj !== 'object') return false;
+      if (typeof obj.type !== 'string') return false;
+
+      // Reject suspicious properties that could be XSS vectors
+      if (obj.src && typeof obj.src === 'string' && obj.src.toLowerCase().includes('javascript:')) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false; // Invalid JSON
+  }
+}
+
 /** Validate a session loaded from IndexedDB to guard against corrupted/malicious data */
 function validateSession(data: unknown): data is SavedSession {
   if (!data || typeof data !== 'object') return false;
@@ -55,7 +88,27 @@ function validateSession(data: unknown): data is SavedSession {
   if (typeof s.currentPage !== 'number' || s.currentPage < 1) return false;
   if (typeof s.zoom !== 'number' || s.zoom <= 0) return false;
   if (typeof s.savedAt !== 'number') return false;
+
+  // Validate each annotation JSON structure
+  const annotations = s.annotations as Record<number, unknown>;
+  for (const json of Object.values(annotations)) {
+    if (typeof json !== 'string') return false;
+    if (!validateAnnotationJson(json)) return false;
+  }
+
   return true;
+}
+
+/**
+ * Compute a fast fingerprint of PDF bytes to detect changes.
+ * Uses byte length + first/last 16 bytes for efficiency.
+ */
+function computePdfHash(pdfBytes: ArrayBuffer): string {
+  const len = pdfBytes.byteLength;
+  const view = new Uint8Array(pdfBytes);
+  const head = Array.from(view.slice(0, Math.min(16, len)));
+  const tail = Array.from(view.slice(Math.max(0, len - 16)));
+  return `${len}-${head.join(',')}-${tail.join(',')}`;
 }
 
 export async function saveSession(session: SavedSession): Promise<void> {
@@ -63,27 +116,52 @@ export async function saveSession(session: SavedSession): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    store.put(session, SESSION_KEY);
 
-    const backupKey = `session-backup-${session.savedAt}`;
-    store.put(session, backupKey);
+    // Check if we can skip re-storing PDF bytes
+    const getCurrentRequest = store.get(SESSION_KEY);
+    getCurrentRequest.onsuccess = () => {
+      const currentSession = getCurrentRequest.result as SavedSession | undefined;
+      const newHash = computePdfHash(session.pdfBytes);
 
-    const cursorRequest = store.openCursor();
-    const backupKeys: string[] = [];
-    cursorRequest.onsuccess = (e) => {
-      const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
-      if (cursor) {
-        const key = cursor.key as string;
-        if (typeof key === 'string' && key.startsWith('session-backup-')) {
-          backupKeys.push(key);
-        }
-        cursor.continue();
+      let sessionToStore = session;
+
+      // If PDF hasn't changed, reuse existing PDF bytes and update only metadata
+      if (currentSession && currentSession.pdfBytesHash === newHash) {
+        sessionToStore = {
+          ...session,
+          pdfBytes: currentSession.pdfBytes, // Reuse existing bytes
+          pdfBytesHash: newHash,
+        };
       } else {
-        backupKeys.sort().reverse();
-        for (let i = MAX_STORED_SESSIONS; i < backupKeys.length; i++) {
-          store.delete(backupKeys[i]);
-        }
+        // PDF changed or new session — compute and store hash
+        sessionToStore = {
+          ...session,
+          pdfBytesHash: newHash,
+        };
       }
+
+      store.put(sessionToStore, SESSION_KEY);
+
+      const backupKey = `session-backup-${session.savedAt}`;
+      store.put(sessionToStore, backupKey);
+
+      const cursorRequest = store.openCursor();
+      const backupKeys: string[] = [];
+      cursorRequest.onsuccess = (e) => {
+        const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+        if (cursor) {
+          const key = cursor.key as string;
+          if (typeof key === 'string' && key.startsWith('session-backup-')) {
+            backupKeys.push(key);
+          }
+          cursor.continue();
+        } else {
+          backupKeys.sort().reverse();
+          for (let i = MAX_STORED_SESSIONS; i < backupKeys.length; i++) {
+            store.delete(backupKeys[i]);
+          }
+        }
+      };
     };
 
     tx.oncomplete = () => { resolve(); };

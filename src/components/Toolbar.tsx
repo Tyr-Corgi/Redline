@@ -117,6 +117,7 @@ function Toolbar({
               className={`tool-btn ${activeTool === tool ? 'active' : ''}`}
               onClick={() => onToolChange(tool)}
               aria-label={title.split(' — ')[0]}
+              aria-current={activeTool === tool ? 'true' : undefined}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d={icon} />

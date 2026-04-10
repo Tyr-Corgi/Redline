@@ -20,6 +20,11 @@ const IMAGE_DEFAULT_WIDTH = 200;
 const STAMP_FONT_SIZE = 28;
 const CHECKBOX_SIZE = 22;
 
+// Interface for accessing Fabric.js IText internal textarea (Issue 1)
+interface FabricITextWithTextarea {
+  hiddenTextarea?: HTMLTextAreaElement;
+}
+
 interface PageCanvasProps {
   pageNum: number;
   pdfDoc: PDFDocumentProxy;
@@ -67,10 +72,15 @@ export function PageCanvas({
 
   // Track in-flight render to cancel on re-render
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
+  // Track mounted state to prevent state updates after unmount (Issue 3)
+  const isMountedRef = useRef(true);
+
+  // Track tool announcement for screen readers (Issue 4)
+  const [toolAnnouncement, setToolAnnouncement] = useState('');
 
   // Render PDF page to background canvas
   const renderPdf = useCallback(async () => {
-    if (!pdfCanvasRef.current) return;
+    if (!pdfCanvasRef.current || !isMountedRef.current) return;
     if (renderTaskRef.current) {
       try { renderTaskRef.current.cancel(); } catch { /* already done */ }
       renderTaskRef.current = null;
@@ -95,7 +105,10 @@ export function PageCanvas({
       await task.promise;
       if (renderTaskRef) renderTaskRef.current = null;
 
-      setPageSize({ width: viewport.width, height: viewport.height });
+      // Only update state if still mounted (Issue 3)
+      if (isMountedRef.current) {
+        setPageSize({ width: viewport.width, height: viewport.height });
+      }
     } catch (err: unknown) {
       if (err instanceof Error && err.message.includes('cancelled')) return;
       throw err;
@@ -103,8 +116,10 @@ export function PageCanvas({
   }, [pdfDoc, pageNum, zoom, rotation]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     renderPdf();
     return () => {
+      isMountedRef.current = false;
       if (renderTaskRef.current) {
         try { renderTaskRef.current.cancel(); } catch { /* already done */ }
         renderTaskRef.current = null;
@@ -269,8 +284,8 @@ export function PageCanvas({
           setTimeout(() => {
             text.enterEditing();
             text.selectAll();
-            // Ensure the hidden textarea has focus for keyboard capture
-            const hiddenInput = (text as unknown as { hiddenTextarea?: HTMLTextAreaElement }).hiddenTextarea;
+            // Ensure the hidden textarea has focus for keyboard capture (Issue 1)
+            const hiddenInput = (text as FabricITextWithTextarea).hiddenTextarea;
             hiddenInput?.focus();
           }, 0);
         });
@@ -437,6 +452,35 @@ export function PageCanvas({
     };
   }, [activeTool, toolConfig, onModified]);
 
+  // Announce tool changes to screen readers (Issue 4)
+  useEffect(() => {
+    const toolNames: Record<Tool, string> = {
+      select: 'Select',
+      text: 'Text',
+      draw: 'Draw',
+      highlight: 'Highlight',
+      redact: 'Redact',
+      arrow: 'Arrow',
+      circle: 'Circle',
+      stamp: 'Stamp',
+      checkbox: 'Checkbox',
+      date: 'Date',
+      shape: 'Shape',
+      eraser: 'Eraser',
+      signature: 'Signature',
+      image: 'Image',
+    };
+
+    const toolName = toolNames[activeTool] || activeTool;
+    setToolAnnouncement(`Tool changed to ${toolName}`);
+
+    const timer = setTimeout(() => {
+      setToolAnnouncement('');
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [activeTool]);
+
   // Signature save
   const handleSignatureSave = (dataUrl: string) => {
     setSignatureOpen(false);
@@ -501,8 +545,28 @@ export function PageCanvas({
         ref={fabricWrapperRef}
         role="img"
         aria-label={`Annotation layer, page ${pageNum}`}
+        aria-roledescription="annotation canvas"
+        tabIndex={0}
         style={{ position: 'absolute', top: 0, left: 0, zIndex: 2, width: pageSize?.width, height: pageSize?.height }}
       />
+      <div
+        role="status"
+        aria-live="polite"
+        className="sr-only"
+        style={{
+          position: 'absolute',
+          width: '1px',
+          height: '1px',
+          padding: 0,
+          margin: '-1px',
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+          whiteSpace: 'nowrap',
+          border: 0,
+        }}
+      >
+        {toolAnnouncement}
+      </div>
       <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
       {signatureOpen && (
         <Suspense fallback={null}>
@@ -576,8 +640,10 @@ function setupDragShape(canvas: FabricCanvas, color: string, lineWidth: number, 
     if (shape instanceof Rect) {
       shape.set({ width: Math.abs(w), height: Math.abs(h), left: w < 0 ? pt.x : startX, top: h < 0 ? pt.y : startY });
     } else if (shape instanceof Circle) {
+      // Fix Issue 2: Use local variable for proper type narrowing
       const r = Math.sqrt(w * w + h * h) / 2;
-      (shape as Circle).set({ radius: r });
+      const circle = shape as Circle;
+      circle.set({ radius: r });
     }
     if (!sharedRafRef.current) {
       sharedRafRef.current = requestAnimationFrame(() => {

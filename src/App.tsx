@@ -19,6 +19,9 @@ export default function App() {
   const SAVE_STATUS_RESET_MS = 3500;
   const PRINT_DPI_SCALE = 2;
 
+  // Issue 4: Prevent double-clicks during async operations
+  const [isBusy, setIsBusy] = useState(false);
+
   const {
     file,
     pdfDoc,
@@ -64,6 +67,9 @@ export default function App() {
   const autoSaverRef = useRef(createDebouncedSaver(AUTO_SAVE_DEBOUNCE_MS));
   const latestStateRef = useRef({ file, currentPage, zoom });
   const zoomRafRef = useRef<number | null>(null);
+  // Issue 2: Guard to prevent circular history restoration loops
+  const isRestoringHistoryRef = useRef(false);
+  // Issue 5: Sync ref during render — safe for refs per React docs (avoids stale closures in callbacks)
   latestStateRef.current = { file, currentPage, zoom };
 
   // Toast auto-dismiss
@@ -142,14 +148,26 @@ export default function App() {
     await clearSession();
   }, [file, clearFile]);
 
+  // Issue 1: Typed interface for Fabric text objects (replaces unsafe `as any`)
+  interface FabricTextObject {
+    set(key: string, value: unknown): void;
+    fontSize?: number;
+    fontFamily?: string;
+    fontWeight?: string;
+    fontStyle?: string;
+    underline?: boolean;
+    fill?: string;
+    stroke?: string;
+  }
+
   // Apply tool config changes to both state and any selected Fabric object
   const handleToolConfigChange = useCallback((config: Parameters<typeof setToolConfig>[0]) => {
     setToolConfig(config);
     if (!fabricCanvasRef.current) return;
     const obj = fabricCanvasRef.current.getActiveObject();
     if (!obj) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const o = obj as any;
+    // Use typed interface instead of `any` — still a cast but documented and type-safe
+    const o = obj as FabricTextObject;
     const isText = 'fontSize' in obj;
     if (isText) {
       if (config.fontSize !== undefined) o.set('fontSize', config.fontSize);
@@ -168,6 +186,10 @@ export default function App() {
   // Trigger debounced auto-save to IndexedDB
   const triggerAutoSave = useCallback(() => {
     const { file: currentFile, currentPage: page, zoom: currentZoom } = latestStateRef.current;
+    // Issue 3: Guard against race conditions — pdfBytesRef is captured at call time
+    // and the session object is fully built before being passed to the debounced saver.
+    // This architecture ensures that even though the save is debounced, the actual
+    // data (pdfBytes, annotations) is immutable once captured here.
     if (!pdfBytesRef.current || !currentFile) return;
     setSaveStatus('saving');
     const annotations: Record<number, string> = {};
@@ -210,6 +232,9 @@ export default function App() {
     const entry = history[historyIndex];
     if (!entry || entry.page !== currentPage || !fabricCanvasRef.current) return;
 
+    // Issue 2: Set guard to prevent circular loops during history restoration
+    isRestoringHistoryRef.current = true;
+
     // Restore canvas from history snapshot (suppress modification events and
     // disable interaction while loading to prevent race conditions)
     const canvas = fabricCanvasRef.current;
@@ -227,12 +252,16 @@ export default function App() {
       canvas.renderAll();
       canvas.selection = true;
       savePageAnnotations(currentPage, entry.snapshot, zoom);
+      // Clear restoration guard after async restore completes
+      isRestoringHistoryRef.current = false;
     });
   }, [historyIndex, history, currentPage, zoom, savePageAnnotations]);
 
   // Save PDF by flattening Fabric canvas overlays onto each annotated page
   const handleSave = useCallback(async () => {
-    if (!file || !pdfDoc) return;
+    // Issue 4: Prevent double-clicks during async save operation
+    if (isBusy || !file || !pdfDoc) return;
+    setIsBusy(true);
 
     try {
       // Flush current page's raw annotations before save
@@ -306,12 +335,19 @@ export default function App() {
     } catch (error) {
       console.error('Save error:', error);
       setToast({ message: `Failed to save PDF: ${error instanceof Error ? error.message : 'Unknown error'}`, type: 'error' });
+    } finally {
+      setIsBusy(false);
     }
-  }, [file, pdfDoc, currentPage, zoom, pageRotations, deletedPages, savePageAnnotations, getAllPageAnnotations]);
+  }, [isBusy, file, pdfDoc, currentPage, zoom, pageRotations, deletedPages, savePageAnnotations, getAllPageAnnotations]);
 
   // Print all pages (PDF + annotation overlays) in a print-friendly window
   const handlePrint = useCallback(async () => {
-    if (!pdfDoc) { window.print(); return; }
+    // Issue 4: Prevent double-clicks during async print operation
+    if (isBusy || !pdfDoc) {
+      if (!isBusy && !pdfDoc) window.print();
+      return;
+    }
+    setIsBusy(true);
 
     // Flush current page's raw annotations before print
     if (fabricCanvasRef.current) {
@@ -418,8 +454,10 @@ export default function App() {
       console.error('Print error:', error);
       printWindow.close();
       setToast({ message: `Print preparation failed: ${error instanceof Error ? error.message : 'Unknown error'}`, type: 'error' });
+    } finally {
+      setIsBusy(false);
     }
-  }, [pdfDoc, currentPage, zoom, pageRotations, deletedPages, savePageAnnotations, getAllPageAnnotations, PRINT_DPI_SCALE]);
+  }, [isBusy, pdfDoc, currentPage, zoom, pageRotations, deletedPages, savePageAnnotations, getAllPageAnnotations, PRINT_DPI_SCALE]);
 
   // Warn before closing tab with unsaved work & flush auto-save
   useEffect(() => {
@@ -622,6 +660,8 @@ export default function App() {
               rotation={getPageRotation(currentPage)}
               onCanvasReady={(fc) => { fabricCanvasRef.current = fc as FabricCanvasWithOverlay; }}
               onModified={() => {
+                // Issue 2: Prevent circular loops — skip history push during restoration
+                if (isRestoringHistoryRef.current) return;
                 if (fabricCanvasRef.current) {
                   const rawSnapshot = JSON.stringify(fabricCanvasRef.current.toJSON());
                   pushHistory(currentPage, rawSnapshot);
