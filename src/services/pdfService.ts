@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
+import type { PDFDocument } from 'pdf-lib';
 import type React from 'react';
 
 // Configure PDF.js worker — use Vite ?url import for local worker file
@@ -85,8 +86,7 @@ export async function renderPage(
  * This handles all annotation types uniformly by flattening the canvas.
  */
 async function embedCanvasImage(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  pdfDoc: any, // pdf-lib PDFDocument - typed as any due to dynamic import
+  pdfDoc: PDFDocument,
   pageIndex: number,
   canvasDataUrl: string,
   pageWidth: number,

@@ -62,9 +62,22 @@ export function validateAnnotationJson(json: string): boolean {
     if (!Array.isArray(parsed.objects)) return false;
 
     // Each object must have a type string (Fabric.js requirement)
+    const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
     for (const obj of parsed.objects) {
       if (!obj || typeof obj !== 'object') return false;
       if (typeof obj.type !== 'string') return false;
+
+      // Reject prototype pollution vectors (hasOwnProperty — not `in` which checks prototype chain)
+      if (DANGEROUS_KEYS.some(key => Object.prototype.hasOwnProperty.call(obj, key))) return false;
+
+      // Also check nested objects recursively
+      const checkNested = (val: unknown): boolean => {
+        if (!val || typeof val !== 'object') return true;
+        if (Array.isArray(val)) return val.every(checkNested);
+        if (DANGEROUS_KEYS.some(key => Object.prototype.hasOwnProperty.call(val, key))) return false;
+        return Object.values(val as Record<string, unknown>).every(checkNested);
+      };
+      if (!Object.values(obj).every(checkNested)) return false;
 
       // Reject suspicious properties that could be XSS vectors
       if (obj.src && typeof obj.src === 'string' && obj.src.toLowerCase().includes('javascript:')) {

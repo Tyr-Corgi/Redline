@@ -1,24 +1,32 @@
 import { useRef, useEffect, useCallback, useState, lazy, Suspense } from 'react';
-import {
-  Canvas as FabricCanvas,
-  IText,
-  Rect,
-  Circle,
-  Image as FabricImage,
-  PencilBrush,
-  Line,
-  Polygon,
-  Group,
-} from 'fabric';
-import type { FabricObject } from 'fabric';
+import type { Canvas as FabricCanvas } from 'fabric';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { Tool, ToolConfig } from '../types';
+import {
+  setupDragRect,
+  setupDragShape,
+  setupDragCircle,
+  setupDragArrow,
+  setupStampTool,
+  setupCheckboxTool,
+  setupDateTool,
+  renderPdfPage,
+  initializeFabricCanvas,
+  setupAnnotationListeners,
+} from '../tools';
 const SignatureModal = lazy(() => import('./SignatureModal').then(m => ({ default: m.SignatureModal })));
+
+// Lazy load Fabric.js module
+let fabricModule: typeof import('fabric') | null = null;
+async function getFabric() {
+  if (!fabricModule) {
+    fabricModule = await import('fabric');
+  }
+  return fabricModule;
+}
 
 // Constants
 const IMAGE_DEFAULT_WIDTH = 200;
-const STAMP_FONT_SIZE = 28;
-const CHECKBOX_SIZE = 22;
 
 // Interface for accessing Fabric.js IText internal textarea (Issue 1)
 interface FabricITextWithTextarea {
@@ -80,38 +88,18 @@ export function PageCanvas({
 
   // Render PDF page to background canvas
   const renderPdf = useCallback(async () => {
-    if (!pdfCanvasRef.current || !isMountedRef.current) return;
-    if (renderTaskRef.current) {
-      try { renderTaskRef.current.cancel(); } catch { /* already done */ }
-      renderTaskRef.current = null;
-    }
-    try {
-      const page = await pdfDoc.getPage(pageNum);
-      // Apply rotation to the viewport
-      const viewport = page.getViewport({ scale: zoom, rotation });
-
-      const context = pdfCanvasRef.current.getContext('2d');
-      if (!context) throw new Error('Failed to get canvas 2D context');
-
-      const dpr = window.devicePixelRatio || 1;
-      pdfCanvasRef.current.width = viewport.width * dpr;
-      pdfCanvasRef.current.height = viewport.height * dpr;
-      pdfCanvasRef.current.style.width = `${viewport.width}px`;
-      pdfCanvasRef.current.style.height = `${viewport.height}px`;
-      context.scale(dpr, dpr);
-
-      const task = page.render({ canvasContext: context, viewport, canvas: pdfCanvasRef.current } as unknown as Parameters<typeof page.render>[0]);
-      if (renderTaskRef) renderTaskRef.current = task;
-      await task.promise;
-      if (renderTaskRef) renderTaskRef.current = null;
-
-      // Only update state if still mounted (Issue 3)
-      if (isMountedRef.current) {
-        setPageSize({ width: viewport.width, height: viewport.height });
-      }
-    } catch (err: unknown) {
-      if (err instanceof Error && err.message.includes('cancelled')) return;
-      throw err;
+    if (!pdfCanvasRef.current) return;
+    const result = await renderPdfPage(
+      pdfDoc,
+      pageNum,
+      pdfCanvasRef.current,
+      zoom,
+      rotation,
+      renderTaskRef,
+      () => isMountedRef.current
+    );
+    if (result) {
+      setPageSize(result);
     }
   }, [pdfDoc, pageNum, zoom, rotation]);
 
@@ -146,64 +134,36 @@ export function PageCanvas({
     // Don't set canvasEl.width/height — let Fabric handle physical pixels via enableRetinaScaling
     wrapper.appendChild(canvasEl);
 
-    // Create Fabric canvas from the programmatic element
-    const fc = new FabricCanvas(canvasEl, {
-      width: pageSize.width,
-      height: pageSize.height,
-      selection: true,
-      enableRetinaScaling: true,
-    });
-
-    fabricRef.current = fc;
-    onCanvasReady?.(fc);
-
-    // Restore saved annotations for this page.
-    // Annotations are stored raw at whatever zoom they were created at, along
-    // with the zoom level. To load them into the current zoom, we scale ALL
-    // object properties by (currentZoom / storedZoom).
-    const stored = liveCanvasJsonRef.current;
-    annotationsRestoredRef.current = false;
+    // Initialize Fabric canvas asynchronously
+    let fc: FabricCanvas | null = null;
     let mounted = true;
-    if (stored) {
-      try {
-        const zoomRatio = stored.zoom > 0 ? zoom / stored.zoom : 1;
-        fc.loadFromJSON(stored.json).then(() => {
-          if (!mounted) return;
-          if (Math.abs(zoomRatio - 1) > 0.001) {
-            fc.forEachObject((obj) => {
-              obj.set({
-                left: (obj.left ?? 0) * zoomRatio,
-                top: (obj.top ?? 0) * zoomRatio,
-                scaleX: (obj.scaleX ?? 1) * zoomRatio,
-                scaleY: (obj.scaleY ?? 1) * zoomRatio,
-              });
-              obj.setCoords();
-            });
-          }
-          savedZoomRef.current = zoom;
-          annotationsRestoredRef.current = true;
-          fc.renderAll();
-        });
-      } catch {
-        savedZoomRef.current = zoom;
-      }
-    } else {
+
+    getFabric().then(async (fabric) => {
+      if (!mounted) return;
+
+      fc = await initializeFabricCanvas(
+        fabric,
+        canvasEl,
+        pageSize,
+        liveCanvasJsonRef.current,
+        zoom,
+        onCanvasReady
+      );
+
+      fabricRef.current = fc;
       savedZoomRef.current = zoom;
-    }
+      annotationsRestoredRef.current = true;
 
-    // Emit annotation changes on every modification — store raw JSON + current zoom
-    const emitChange = () => {
-      if (!fabricRef.current) return;
-      const rawJson = JSON.stringify(fabricRef.current.toJSON());
-      liveCanvasJsonRef.current = { json: rawJson, zoom: savedZoomRef.current };
-      onAnnotationsChange?.(pageNum, rawJson, savedZoomRef.current);
-      onModified?.();
-    };
-
-    fc.on('object:modified', emitChange);
-    fc.on('object:added', emitChange);
-    fc.on('object:removed', emitChange);
-    fc.on('path:created', emitChange);
+      // Setup annotation change listeners
+      setupAnnotationListeners(
+        fc,
+        pageNum,
+        savedZoomRef,
+        liveCanvasJsonRef,
+        onAnnotationsChange,
+        onModified
+      );
+    });
 
     return () => {
       mounted = false;
@@ -213,15 +173,17 @@ export function PageCanvas({
         liveCanvasJsonRef.current = { json: rawJson, zoom: savedZoomRef.current };
         onAnnotationsChange?.(pageNum, rawJson, savedZoomRef.current);
       }
-      fc.off('object:modified');
-      fc.off('object:added');
-      fc.off('object:removed');
-      fc.off('path:created');
-      fc.off('mouse:down');
-      fc.off('mouse:move');
-      fc.off('mouse:up');
-      fc.clear();
-      fc.dispose();
+      if (fc) {
+        fc.off('object:modified');
+        fc.off('object:added');
+        fc.off('object:removed');
+        fc.off('path:created');
+        fc.off('mouse:down');
+        fc.off('mouse:move');
+        fc.off('mouse:up');
+        fc.clear();
+        fc.dispose();
+      }
       fabricRef.current = null;
       wrapper.replaceChildren();
     };
@@ -250,198 +212,163 @@ export function PageCanvas({
     // Objects are always selectable/movable
     canvas.forEachObject((obj) => { obj.selectable = true; });
 
-    switch (activeTool) {
-      case 'select':
-        break;
+    // Track cleanup function for drag tools
+    let dragToolCleanup: (() => void) | null = null;
 
-      case 'text':
-        canvas.on('mouse:down', (opt) => {
-          if (opt.target) return;
-          const pt = canvas.getScenePoint(opt.e);
-          const text = new IText('Type here', {
-            left: pt.x,
-            top: pt.y,
-            originX: 'left',
-            originY: 'bottom',
-            fontSize: toolConfig.fontSize,
-            fontFamily: toolConfig.fontFamily,
-            fontWeight: toolConfig.bold ? 'bold' : 'normal',
-            fontStyle: toolConfig.italic ? 'italic' : 'normal',
-            underline: toolConfig.underline,
-            fill: toolConfig.color,
-            stroke: toolConfig.color,
-            strokeWidth: 0.5,
-            paintFirst: 'stroke',
-            selectable: true,
-            editable: true,
-          });
-          canvas.add(text);
-          canvas.setActiveObject(text);
-          // Defer editing entry past Fabric's full mouse event cycle (mouse:down → mouse:up).
-          // A single requestAnimationFrame isn't enough because Fabric's mouse:up fires
-          // after the first frame and can steal focus. Using setTimeout(0) ensures we run
-          // after Fabric's entire event pipeline completes.
-          setTimeout(() => {
-            text.enterEditing();
-            text.selectAll();
-            // Ensure the hidden textarea has focus for keyboard capture (Issue 1)
-            const hiddenInput = (text as FabricITextWithTextarea).hiddenTextarea;
-            hiddenInput?.focus();
-          }, 0);
-        });
-        break;
+    const setupTools = async () => {
+      const fabric = await getFabric();
 
-      case 'draw': {
-        canvas.isDrawingMode = true;
-        const brush = new PencilBrush(canvas);
-        brush.width = toolConfig.lineWidth;
-        brush.color = toolConfig.color;
-        canvas.freeDrawingBrush = brush;
-        break;
-      }
+      switch (activeTool) {
+        case 'select':
+          break;
 
-      case 'highlight':
-        setupDragRect(canvas, toolConfig.color || '#FFFF00', toolConfig.opacity, dragRafRef);
-        break;
-
-      case 'redact':
-        setupDragRect(canvas, '#000000', 1.0, dragRafRef);
-        break;
-
-      case 'arrow':
-        setupDragArrow(canvas, toolConfig.color, toolConfig.lineWidth, dragRafRef);
-        break;
-
-      case 'circle':
-        setupDragCircle(canvas, toolConfig.color, toolConfig.lineWidth, dragRafRef);
-        break;
-
-      case 'stamp':
-        canvas.on('mouse:down', (opt) => {
-          if (opt.target) return;
-          const pt = canvas.getScenePoint(opt.e);
-          const stampColors: Record<string, string> = {
-            approved: '#22c55e',
-            draft: '#f59e0b',
-            confidential: '#ef4444',
-            urgent: '#dc2626',
-            void: '#b91c1c',
-          };
-          const stampType = toolConfig.stampType || 'approved';
-          const color = stampColors[stampType] || '#ef4444';
-          const stamp = new IText(stampType.toUpperCase(), {
-            left: pt.x,
-            top: pt.y,
-            fontSize: STAMP_FONT_SIZE,
-            fontFamily: 'Arial',
-            fontWeight: 'bold',
-            fill: color,
-            stroke: color,
-            strokeWidth: 1,
-            paintFirst: 'stroke',
-            padding: 8,
-            angle: stampType === 'void' ? -30 : 0,
-          });
-          canvas.add(stamp);
-        });
-        break;
-
-      case 'checkbox':
-        canvas.on('mouse:down', (opt) => {
-          if (opt.target) return;
-          const pt = canvas.getScenePoint(opt.e);
-          const size = CHECKBOX_SIZE;
-
-          // Draw just the mark on a temp canvas with DPI awareness, then add as image
-          const dpr = window.devicePixelRatio || 1;
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = (size + 4) * dpr;
-          tempCanvas.height = (size + 4) * dpr;
-          const ctx = tempCanvas.getContext('2d')!;
-          ctx.scale(dpr, dpr);
-
-          // Draw mark only (no surrounding box)
-          ctx.strokeStyle = '#333333';
-          ctx.lineWidth = 2.5;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          ctx.beginPath();
-          if (toolConfig.checkboxStyle === 'x') {
-            ctx.moveTo(4, 4);
-            ctx.lineTo(size, size);
-            ctx.moveTo(size, 4);
-            ctx.lineTo(4, size);
-          } else {
-            ctx.moveTo(4, 2 + size / 2);
-            ctx.lineTo(2 + size * 0.38, size - 1);
-            ctx.lineTo(size, 5);
-          }
-          ctx.stroke();
-
-          // Convert to Fabric image
-          const dataUrl = tempCanvas.toDataURL();
-          FabricImage.fromURL(dataUrl).then((img) => {
-            img.set({
+        case 'text':
+          canvas.on('mouse:down', (opt) => {
+            if (opt.target) return;
+            const pt = canvas.getScenePoint(opt.e);
+            const text = new fabric.IText('Type here', {
               left: pt.x,
               top: pt.y,
+              originX: 'left',
+              originY: 'bottom',
+              fontSize: toolConfig.fontSize,
+              fontFamily: toolConfig.fontFamily,
+              fontWeight: toolConfig.bold ? 'bold' : 'normal',
+              fontStyle: toolConfig.italic ? 'italic' : 'normal',
+              underline: toolConfig.underline,
+              fill: toolConfig.color,
+              stroke: toolConfig.color,
+              strokeWidth: 0.5,
+              paintFirst: 'stroke',
               selectable: true,
+              editable: true,
             });
-            canvas.add(img);
-            canvas.renderAll();
+            canvas.add(text);
+            canvas.setActiveObject(text);
+            // Defer editing entry past Fabric's full mouse event cycle (mouse:down → mouse:up).
+            // A single requestAnimationFrame isn't enough because Fabric's mouse:up fires
+            // after the first frame and can steal focus. Using setTimeout(0) ensures we run
+            // after Fabric's entire event pipeline completes.
+            setTimeout(() => {
+              text.enterEditing();
+              text.selectAll();
+              // Ensure the hidden textarea has focus for keyboard capture (Issue 1)
+              const hiddenInput = (text as FabricITextWithTextarea).hiddenTextarea;
+              hiddenInput?.focus();
+            }, 0);
           });
-        });
-        break;
+          break;
 
-      case 'date':
-        canvas.on('mouse:down', (opt) => {
-          if (opt.target) return;
-          const pt = canvas.getScenePoint(opt.e);
-          const today = new Date().toLocaleDateString();
-          const text = new IText(today, {
-            left: pt.x,
-            top: pt.y,
-            originX: 'left',
-            originY: 'bottom',
+        case 'draw': {
+          canvas.isDrawingMode = true;
+          const brush = new fabric.PencilBrush(canvas);
+          brush.width = toolConfig.lineWidth;
+          brush.color = toolConfig.color;
+          canvas.freeDrawingBrush = brush;
+          break;
+        }
+
+        case 'highlight':
+          dragToolCleanup = setupDragRect({
+            canvas,
+            color: toolConfig.color || '#FFFF00',
+            opacity: toolConfig.opacity,
+            strokeWidth: toolConfig.lineWidth,
+            rafRef: dragRafRef,
+          });
+          break;
+
+        case 'redact':
+          dragToolCleanup = setupDragRect({
+            canvas,
+            color: '#000000',
+            opacity: 1.0,
+            strokeWidth: toolConfig.lineWidth,
+            rafRef: dragRafRef,
+          });
+          break;
+
+        case 'arrow':
+          dragToolCleanup = setupDragArrow({
+            canvas,
+            color: toolConfig.color,
+            opacity: toolConfig.opacity,
+            strokeWidth: toolConfig.lineWidth,
+            rafRef: dragRafRef,
+          });
+          break;
+
+        case 'circle':
+          dragToolCleanup = setupDragCircle({
+            canvas,
+            color: toolConfig.color,
+            opacity: toolConfig.opacity,
+            strokeWidth: toolConfig.lineWidth,
+            rafRef: dragRafRef,
+          });
+          break;
+
+        case 'stamp':
+          dragToolCleanup = setupStampTool({
+            canvas,
+            stampType: toolConfig.stampType,
+          });
+          break;
+
+        case 'checkbox':
+          dragToolCleanup = setupCheckboxTool({
+            canvas,
+            checkboxStyle: toolConfig.checkboxStyle,
+          });
+          break;
+
+        case 'date':
+          dragToolCleanup = setupDateTool({
+            canvas,
             fontSize: toolConfig.fontSize,
             fontFamily: toolConfig.fontFamily,
-            fill: toolConfig.color,
-            stroke: toolConfig.color,
-            strokeWidth: 0.5,
-            paintFirst: 'stroke',
+            color: toolConfig.color,
           });
-          canvas.add(text);
-        });
-        break;
+          break;
 
-      case 'shape':
-        setupDragShape(canvas, toolConfig.color, toolConfig.lineWidth, dragRafRef);
-        break;
+        case 'shape':
+          dragToolCleanup = setupDragShape({
+            canvas,
+            color: toolConfig.color,
+            opacity: toolConfig.opacity,
+            strokeWidth: toolConfig.lineWidth,
+            rafRef: dragRafRef,
+          });
+          break;
 
-      case 'eraser':
-        canvas.on('mouse:down', (opt) => {
-          if (opt.target) {
-            canvas.remove(opt.target);
-            canvas.renderAll();
+        case 'eraser':
+          canvas.on('mouse:down', (opt) => {
+            if (opt.target) {
+              canvas.remove(opt.target);
+              canvas.renderAll();
+            }
+          });
+          break;
+
+        case 'signature':
+          // Only open modal when user explicitly switches to this tool, not on remount
+          if (prevActiveToolRef.current !== 'signature') {
+            setSignatureOpen(true);
           }
-        });
-        break;
+          break;
 
-      case 'signature':
-        // Only open modal when user explicitly switches to this tool, not on remount
-        if (prevActiveToolRef.current !== 'signature') {
-          setSignatureOpen(true);
-        }
-        break;
+        case 'image':
+          // Only trigger file picker when user explicitly switches to this tool,
+          // not when PageCanvas remounts due to page navigation
+          if (prevActiveToolRef.current !== 'image') {
+            imageInputRef.current?.click();
+          }
+          break;
+      }
+      prevActiveToolRef.current = activeTool;
+    };
 
-      case 'image':
-        // Only trigger file picker when user explicitly switches to this tool,
-        // not when PageCanvas remounts due to page navigation
-        if (prevActiveToolRef.current !== 'image') {
-          imageInputRef.current?.click();
-        }
-        break;
-    }
-    prevActiveToolRef.current = activeTool;
+    setupTools();
 
     return () => {
       // Cancel any in-flight drag RAF on cleanup (tool change or unmount)
@@ -449,43 +376,27 @@ export function PageCanvas({
         cancelAnimationFrame(dragRafRef.current);
         dragRafRef.current = null;
       }
+      // Clean up drag tool event listeners
+      if (dragToolCleanup) {
+        dragToolCleanup();
+      }
     };
   }, [activeTool, toolConfig, onModified]);
 
   // Announce tool changes to screen readers (Issue 4)
   useEffect(() => {
-    const toolNames: Record<Tool, string> = {
-      select: 'Select',
-      text: 'Text',
-      draw: 'Draw',
-      highlight: 'Highlight',
-      redact: 'Redact',
-      arrow: 'Arrow',
-      circle: 'Circle',
-      stamp: 'Stamp',
-      checkbox: 'Checkbox',
-      date: 'Date',
-      shape: 'Shape',
-      eraser: 'Eraser',
-      signature: 'Signature',
-      image: 'Image',
-    };
-
-    const toolName = toolNames[activeTool] || activeTool;
-    setToolAnnouncement(`Tool changed to ${toolName}`);
-
-    const timer = setTimeout(() => {
-      setToolAnnouncement('');
-    }, 1000);
-
+    const name = activeTool.charAt(0).toUpperCase() + activeTool.slice(1);
+    setToolAnnouncement(`Tool changed to ${name}`);
+    const timer = setTimeout(() => setToolAnnouncement(''), 1000);
     return () => clearTimeout(timer);
   }, [activeTool]);
 
   // Signature save
-  const handleSignatureSave = (dataUrl: string) => {
+  const handleSignatureSave = async (dataUrl: string) => {
     setSignatureOpen(false);
     if (!fabricRef.current) return;
-    FabricImage.fromURL(dataUrl).then((img) => {
+    const fabric = await getFabric();
+    fabric.Image.fromURL(dataUrl).then((img) => {
       img.scaleToWidth(IMAGE_DEFAULT_WIDTH);
       fabricRef.current?.add(img);
       fabricRef.current?.renderAll();
@@ -494,7 +405,7 @@ export function PageCanvas({
 
   // Image upload
   const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !fabricRef.current) return;
     if (file.size > MAX_IMAGE_SIZE_BYTES) {
@@ -502,10 +413,11 @@ export function PageCanvas({
       e.target.value = '';
       return;
     }
+    const fabric = await getFabric();
     const reader = new FileReader();
     reader.onload = (event) => {
       const url = event.target?.result as string;
-      FabricImage.fromURL(url).then((img) => {
+      fabric.Image.fromURL(url).then((img) => {
         img.scaleToWidth(IMAGE_DEFAULT_WIDTH);
         fabricRef.current?.add(img);
         fabricRef.current?.renderAll();
@@ -575,188 +487,4 @@ export function PageCanvas({
       )}
     </div>
   );
-}
-
-// --- helpers ---
-
-function setupDragRect(canvas: FabricCanvas, color: string, opacity: number, sharedRafRef: React.RefObject<number | null>) {
-  let drawing = false;
-  let startX = 0;
-  let startY = 0;
-  let rect: Rect | null = null;
-
-  canvas.on('mouse:down', (opt) => {
-    if (opt.target) return;
-    const pt = canvas.getScenePoint(opt.e);
-    drawing = true;
-    startX = pt.x;
-    startY = pt.y;
-    rect = new Rect({ left: startX, top: startY, width: 0, height: 0, fill: color, opacity, selectable: true });
-    canvas.add(rect);
-  });
-  canvas.on('mouse:move', (opt) => {
-    if (!drawing || !rect) return;
-    const pt = canvas.getScenePoint(opt.e);
-    const w = pt.x - startX;
-    const h = pt.y - startY;
-    rect.set({ width: Math.abs(w), height: Math.abs(h), left: w < 0 ? pt.x : startX, top: h < 0 ? pt.y : startY });
-    if (!sharedRafRef.current) {
-      sharedRafRef.current = requestAnimationFrame(() => {
-        canvas.renderAll();
-        sharedRafRef.current = null;
-      });
-    }
-  });
-  canvas.on('mouse:up', () => {
-    drawing = false;
-    rect = null;
-    if (sharedRafRef.current) {
-      cancelAnimationFrame(sharedRafRef.current);
-      sharedRafRef.current = null;
-    }
-  });
-}
-
-function setupDragShape(canvas: FabricCanvas, color: string, lineWidth: number, sharedRafRef: React.RefObject<number | null>) {
-  let drawing = false;
-  let startX = 0;
-  let startY = 0;
-  let shape: FabricObject | null = null;
-
-  canvas.on('mouse:down', (opt) => {
-    if (opt.target) return;
-    const pt = canvas.getScenePoint(opt.e);
-    drawing = true;
-    startX = pt.x;
-    startY = pt.y;
-    shape = new Rect({ left: startX, top: startY, width: 0, height: 0, fill: 'transparent', stroke: color, strokeWidth: lineWidth });
-    canvas.add(shape);
-  });
-  canvas.on('mouse:move', (opt) => {
-    if (!drawing || !shape) return;
-    const pt = canvas.getScenePoint(opt.e);
-    const w = pt.x - startX;
-    const h = pt.y - startY;
-    if (shape instanceof Rect) {
-      shape.set({ width: Math.abs(w), height: Math.abs(h), left: w < 0 ? pt.x : startX, top: h < 0 ? pt.y : startY });
-    } else if (shape instanceof Circle) {
-      // Fix Issue 2: Use local variable for proper type narrowing
-      const r = Math.sqrt(w * w + h * h) / 2;
-      const circle = shape as Circle;
-      circle.set({ radius: r });
-    }
-    if (!sharedRafRef.current) {
-      sharedRafRef.current = requestAnimationFrame(() => {
-        canvas.renderAll();
-        sharedRafRef.current = null;
-      });
-    }
-  });
-  canvas.on('mouse:up', () => {
-    drawing = false;
-    shape = null;
-    if (sharedRafRef.current) {
-      cancelAnimationFrame(sharedRafRef.current);
-      sharedRafRef.current = null;
-    }
-  });
-}
-
-function setupDragArrow(canvas: FabricCanvas, color: string, lineWidth: number, sharedRafRef: React.RefObject<number | null>) {
-  let drawing = false;
-  let startX = 0;
-  let startY = 0;
-  let group: Group | null = null;
-
-  canvas.on('mouse:down', (opt) => {
-    if (opt.target) return;
-    const pt = canvas.getScenePoint(opt.e);
-    drawing = true;
-    startX = pt.x;
-    startY = pt.y;
-  });
-  canvas.on('mouse:move', (opt) => {
-    if (!drawing) return;
-    const pt = canvas.getScenePoint(opt.e);
-    const endX = pt.x;
-    const endY = pt.y;
-
-    if (group) canvas.remove(group);
-
-    const line = new Line([startX, startY, endX, endY], {
-      stroke: color,
-      strokeWidth: lineWidth,
-    });
-
-    const angle = Math.atan2(endY - startY, endX - startX);
-    const headLen = 15;
-    const arrowHead = new Polygon([
-      { x: 0, y: 0 },
-      { x: -headLen, y: headLen / 2 },
-      { x: -headLen, y: -headLen / 2 },
-    ], {
-      left: endX,
-      top: endY,
-      angle: (angle * 180) / Math.PI,
-      fill: color,
-      originX: 'center',
-      originY: 'center',
-    });
-
-    group = new Group([line, arrowHead], { selectable: true });
-    canvas.add(group);
-    if (!sharedRafRef.current) {
-      sharedRafRef.current = requestAnimationFrame(() => {
-        canvas.renderAll();
-        sharedRafRef.current = null;
-      });
-    }
-  });
-  canvas.on('mouse:up', () => {
-    drawing = false;
-    group = null;
-    if (sharedRafRef.current) {
-      cancelAnimationFrame(sharedRafRef.current);
-      sharedRafRef.current = null;
-    }
-  });
-}
-
-function setupDragCircle(canvas: FabricCanvas, color: string, lineWidth: number, sharedRafRef: React.RefObject<number | null>) {
-  let drawing = false;
-  let startX = 0;
-  let startY = 0;
-  let circle: Circle | null = null;
-
-  canvas.on('mouse:down', (opt) => {
-    if (opt.target) return;
-    const pt = canvas.getScenePoint(opt.e);
-    drawing = true;
-    startX = pt.x;
-    startY = pt.y;
-    circle = new Circle({ left: startX, top: startY, radius: 0, fill: 'transparent', stroke: color, strokeWidth: lineWidth });
-    canvas.add(circle);
-  });
-  canvas.on('mouse:move', (opt) => {
-    if (!drawing || !circle) return;
-    const pt = canvas.getScenePoint(opt.e);
-    const w = pt.x - startX;
-    const h = pt.y - startY;
-    const r = Math.sqrt(w * w + h * h);
-    circle.set({ radius: r });
-    if (!sharedRafRef.current) {
-      sharedRafRef.current = requestAnimationFrame(() => {
-        canvas.renderAll();
-        sharedRafRef.current = null;
-      });
-    }
-  });
-  canvas.on('mouse:up', () => {
-    drawing = false;
-    circle = null;
-    if (sharedRafRef.current) {
-      cancelAnimationFrame(sharedRafRef.current);
-      sharedRafRef.current = null;
-    }
-  });
 }

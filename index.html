@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Client-side PDF editor" />
     <meta name="theme-color" content="#1e1e2e" />
+    <!-- CSP: wasm-unsafe-eval required for PDF.js WASM decoder. Monitor for CVEs in pdfjs-dist. -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; worker-src 'self' blob:;">
     <title>Redline</title>
   </head>
