@@ -74,10 +74,18 @@ export function useSaveHandler(params: SaveHandlerParams): () => Promise<void> {
               height: baseViewport.height,
             });
           } finally {
-            if (tc) tc.dispose();
+            if (tc) {
+              tc.dispose();
+              // Clean up DOM element
+              const canvasEl = tc.getElement();
+              if (canvasEl?.parentNode) {
+                canvasEl.parentNode.removeChild(canvasEl);
+              }
+              tc = null as any;
+            }
           }
-        } catch {
-          // Skip pages that fail to restore
+        } catch (error) {
+          console.warn('[Redline]', error);
         }
       }
 

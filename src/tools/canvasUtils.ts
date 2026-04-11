@@ -2,6 +2,19 @@ import type { Canvas as FabricCanvas } from 'fabric';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 /**
+ * Deep freeze an object to prevent modification and prototype pollution
+ */
+function deepFreeze<T extends object>(obj: T): T {
+  Object.freeze(obj);
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+      deepFreeze(value);
+    }
+  }
+  return obj;
+}
+
+/**
  * Render PDF page to canvas with DPI awareness
  */
 export async function renderPdfPage(
@@ -84,7 +97,10 @@ export async function initializeFabricCanvas(
   if (savedAnnotations) {
     try {
       const zoomRatio = savedAnnotations.zoom > 0 ? currentZoom / savedAnnotations.zoom : 1;
-      await fc.loadFromJSON(savedAnnotations.json);
+      // Parse and deep-freeze annotation data to prevent prototype pollution
+      const parsedAnnotations = JSON.parse(savedAnnotations.json);
+      const frozenAnnotations = deepFreeze(parsedAnnotations);
+      await fc.loadFromJSON(frozenAnnotations);
       if (Math.abs(zoomRatio - 1) > 0.001) {
         fc.forEachObject((obj) => {
           obj.set({
@@ -114,7 +130,8 @@ export function setupAnnotationListeners(
   savedZoomRef: React.MutableRefObject<number>,
   liveCanvasJsonRef: React.MutableRefObject<{ json: string; zoom: number } | undefined>,
   onAnnotationsChange?: (pageNum: number, json: string, zoom: number) => void,
-  onModified?: () => void
+  onModified?: () => void,
+  onAnnounce?: (message: string) => void
 ): () => void {
   const emitChange = () => {
     const rawJson = JSON.stringify(canvas.toJSON());
@@ -123,15 +140,35 @@ export function setupAnnotationListeners(
     onModified?.();
   };
 
-  canvas.on('object:modified', emitChange);
-  canvas.on('object:added', emitChange);
-  canvas.on('object:removed', emitChange);
-  canvas.on('path:created', emitChange);
+  const handleAdded = () => {
+    emitChange();
+    onAnnounce?.('Annotation added');
+  };
+
+  const handleModified = () => {
+    emitChange();
+    onAnnounce?.('Annotation modified');
+  };
+
+  const handleRemoved = () => {
+    emitChange();
+    onAnnounce?.('Annotation removed');
+  };
+
+  const handlePathCreated = () => {
+    emitChange();
+    onAnnounce?.('Annotation added');
+  };
+
+  canvas.on('object:modified', handleModified);
+  canvas.on('object:added', handleAdded);
+  canvas.on('object:removed', handleRemoved);
+  canvas.on('path:created', handlePathCreated);
 
   return () => {
-    canvas.off('object:modified', emitChange);
-    canvas.off('object:added', emitChange);
-    canvas.off('object:removed', emitChange);
-    canvas.off('path:created', emitChange);
+    canvas.off('object:modified', handleModified);
+    canvas.off('object:added', handleAdded);
+    canvas.off('object:removed', handleRemoved);
+    canvas.off('path:created', handlePathCreated);
   };
 }

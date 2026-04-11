@@ -117,13 +117,14 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
         // Render annotation overlay at stored zoom dimensions (no JSON transform)
         const annotEntry = allAnnotations.get(p);
         if (annotEntry) {
+          let tc: InstanceType<typeof TempFabric> | null = null;
           try {
             const parsed = JSON.parse(annotEntry.json);
             if (parsed.objects && parsed.objects.length > 0) {
               // Render at stored zoom dimensions — matches raw JSON coords
               const storedViewport = page.getViewport({ scale: annotEntry.zoom, rotation: rot });
               const tempCanvas = doc.createElement('canvas');
-              const tc = new TempFabric(tempCanvas, {
+              tc = new TempFabric(tempCanvas, {
                 width: storedViewport.width,
                 height: storedViewport.height,
               });
@@ -131,7 +132,6 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
               await tc.loadFromJSON(annotEntry.json);
               tc.renderAll();
               const overlayUrl = tc.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
-              tc.dispose();
               // CSS stretches the overlay image to match the base viewport
               const overlayImg = doc.createElement('img');
               overlayImg.className = 'overlay-img';
@@ -139,8 +139,18 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
               overlayImg.style.cssText = `width:${cssW}px;height:${cssH}px;`;
               printPageDiv.appendChild(overlayImg);
             }
-          } catch {
-            /* skip annotation errors */
+          } catch (error) {
+            console.warn('[Redline]', error);
+          } finally {
+            if (tc) {
+              tc.dispose();
+              // Clean up DOM element
+              const canvasEl = tc.getElement();
+              if (canvasEl?.parentNode) {
+                canvasEl.parentNode.removeChild(canvasEl);
+              }
+              tc = null as any;
+            }
           }
         }
         body.appendChild(printPageDiv);

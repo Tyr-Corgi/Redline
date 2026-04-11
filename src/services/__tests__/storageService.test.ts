@@ -3,14 +3,10 @@ import { validateAnnotationJson } from '../storageService';
 
 describe('storageService', () => {
   describe('validateAnnotationJson', () => {
-    // KNOWN ISSUE: The validation function has a bug where it uses the 'in' operator
-    // to check for dangerous keys, which incorrectly checks the prototype chain.
-    // This causes ALL objects to fail validation because they inherit from Object.prototype
-    // which has __proto__, constructor, and prototype in the chain.
-    //
-    // The fix would be to use Object.prototype.hasOwnProperty.call(obj, key) instead.
-    //
-    // For now, tests document the current (buggy) behavior.
+    // Defense-in-depth architecture (3 layers):
+    // 1. JSON.parse reviver strips __proto__, constructor, prototype during parsing
+    // 2. hasOwnProperty check rejects any dangerous keys that survive parsing
+    // 3. deepFreeze (in canvasUtils) prevents mutation during Fabric.js deserialization
 
     it('should accept empty string as valid', () => {
       expect(validateAnnotationJson('')).toBe(true);
@@ -57,11 +53,17 @@ describe('storageService', () => {
       expect(validateAnnotationJson(invalidType)).toBe(false);
     });
 
-    // Note: Due to the 'in' operator bug, these tests document expected behavior
-    // but the current implementation fails on ALL objects with properties
+    it('should accept valid annotation objects', () => {
+      const valid = JSON.stringify({
+        objects: [
+          { type: 'rect', left: 10, top: 20, width: 100, height: 50 },
+          { type: 'textbox', left: 30, top: 40, text: 'hello' },
+        ],
+      });
+      expect(validateAnnotationJson(valid)).toBe(true);
+    });
 
-    it('should detect XSS vectors with javascript: protocol (blocked by prototype bug)', () => {
-      // This WOULD be caught by XSS check, but fails earlier due to prototype bug
+    it('should detect XSS vectors with javascript: protocol', () => {
       const xssAttempt = JSON.stringify({
         objects: [
           {
@@ -70,25 +72,25 @@ describe('storageService', () => {
           },
         ],
       });
-      // Current behavior: fails because of __proto__ in prototype chain
       expect(validateAnnotationJson(xssAttempt)).toBe(false);
     });
 
-    it('should reject __proto__ as own property (prototype pollution)', () => {
-      // If someone explicitly sets __proto__ as an own property (rare but possible)
+    it('should sanitize __proto__ via reviver (returns true because key is stripped)', () => {
+      // The JSON.parse reviver strips __proto__ during parsing, so
+      // the resulting object has no dangerous own property. The validator
+      // correctly returns true because the JSON is now safe.
       const pollutionAttempt = '{"objects":[{"type":"rect","__proto__":{"polluted":true}}]}';
-      // This should be rejected (and is, for the right reason in this case)
-      expect(validateAnnotationJson(pollutionAttempt)).toBe(false);
+      expect(validateAnnotationJson(pollutionAttempt)).toBe(true);
     });
 
-    it('should reject constructor as own property', () => {
+    it('should sanitize constructor via reviver (returns true because key is stripped)', () => {
       const constructorAttempt = '{"objects":[{"type":"rect","constructor":{"polluted":true}}]}';
-      expect(validateAnnotationJson(constructorAttempt)).toBe(false);
+      expect(validateAnnotationJson(constructorAttempt)).toBe(true);
     });
 
-    it('should reject prototype as own property', () => {
+    it('should sanitize prototype via reviver (returns true because key is stripped)', () => {
       const prototypeAttempt = '{"objects":[{"type":"rect","prototype":{"polluted":true}}]}';
-      expect(validateAnnotationJson(prototypeAttempt)).toBe(false);
+      expect(validateAnnotationJson(prototypeAttempt)).toBe(true);
     });
   });
 

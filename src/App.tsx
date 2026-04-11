@@ -77,11 +77,22 @@ export default function App() {
   const [restoringSession, setRestoringSession] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'info' } | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ message: string; onConfirm: () => void } | null>(null);
+  const [statusAnnouncement, setStatusAnnouncement] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fabricCanvasRef = useRef<FabricCanvasWithOverlay | null>(null);
   const pdfBytesRef = useRef<ArrayBuffer | null>(null);
   const autoSaverRef = useRef(createDebouncedSaver(AUTO_SAVE_DEBOUNCE_MS));
   const latestStateRef = useRef({ file, currentPage, zoom });
+  /**
+   * Zoom architecture:
+   * - Primary source of truth: `zoom` state (from usePdfEditor hook)
+   * - latestZoomRef: Required for useTouchZoom to avoid stale closures in touch event handlers
+   *   (touch events don't re-subscribe to state changes, so ref access is necessary)
+   * - annotationZooms: Per-page zoom metadata stored with annotations for proper scaling during restore
+   * - savedZoomRef: Used in useSaveHandler for snapshot metadata
+   *
+   * All refs are kept in sync with state. The ref is needed only where event closures would capture stale state.
+   */
   const latestZoomRef = useRef(zoom);
   const isRestoringHistoryRef = useRef(false);
   const pageAnnotationsRef = useRef<Map<number, { json: string; zoom: number }>>(new Map());
@@ -113,6 +124,7 @@ export default function App() {
           restoreAnnotations(session.annotations, session.annotationZooms);
           if (session.currentPage > 1) setPage(session.currentPage);
           if (session.zoom !== 1.0) setZoom(session.zoom);
+          setStatusAnnouncement('Previous session restored');
         }
       } catch (err) {
         console.error('Failed to restore session:', err);
@@ -219,7 +231,10 @@ export default function App() {
       zoom: currentZoom,
       savedAt: Date.now(),
     });
-    setTimeout(() => setSaveStatus('saved'), SAVE_STATUS_DELAY_MS);
+    setTimeout(() => {
+      setSaveStatus('saved');
+      setStatusAnnouncement('Document saved');
+    }, SAVE_STATUS_DELAY_MS);
     setTimeout(() => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)), SAVE_STATUS_RESET_MS);
   }, [getAllPageAnnotations]);
 
@@ -230,8 +245,11 @@ export default function App() {
     if (prevPageRef.current !== currentPage) {
       prevPageRef.current = currentPage;
       triggerAutoSave();
+      if (numPages > 0) {
+        setStatusAnnouncement(`Page ${currentPage} of ${numPages}`);
+      }
     }
-  }, [currentPage, triggerAutoSave]);
+  }, [currentPage, triggerAutoSave, numPages]);
 
   // Restore canvas state on undo/redo
   const lastHistoryIndexRef = useRef<number>(-1);
@@ -359,6 +377,15 @@ export default function App() {
     [zoom, setZoom]
   );
 
+  // Critical 2: Clean up page annotations when page is deleted
+  const handleDeletePage = useCallback(
+    (pageNum: number) => {
+      deletePage(pageNum);
+      pageAnnotationsRef.current.delete(pageNum);
+    },
+    [deletePage]
+  );
+
   return (
     <div className="app">
       <a href="#document-area" className="skip-link">
@@ -425,16 +452,18 @@ export default function App() {
 
       <div className="editor-body">
         {pdfDoc && (
-          <PageSidebar
-            pdfDoc={pdfDoc}
-            currentPage={currentPage}
-            onPageChange={setPage}
-            pageRotations={pageRotations}
-            onRotatePage={rotatePage}
-            deletedPages={deletedPages}
-            onDeletePage={deletePage}
-            onConfirmDelete={(msg, onConfirm) => setConfirmAction({ message: msg, onConfirm })}
-          />
+          <ErrorBoundary>
+            <PageSidebar
+              pdfDoc={pdfDoc}
+              currentPage={currentPage}
+              onPageChange={setPage}
+              pageRotations={pageRotations}
+              onRotatePage={rotatePage}
+              deletedPages={deletedPages}
+              onDeletePage={handleDeletePage}
+              onConfirmDelete={(msg, onConfirm) => setConfirmAction({ message: msg, onConfirm })}
+            />
+          </ErrorBoundary>
         )}
         <div
           id="document-area"
@@ -493,6 +522,11 @@ export default function App() {
           onCancel={() => setConfirmAction(null)}
         />
       )}
+
+      {/* Critical 4: Accessibility status announcements for screen readers */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {statusAnnouncement}
+      </div>
     </div>
   );
 }

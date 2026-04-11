@@ -117,6 +117,7 @@ function Toolbar({
               className={`tool-btn ${activeTool === tool ? 'active' : ''}`}
               onClick={() => onToolChange(tool)}
               aria-label={title.split(' — ')[0]}
+              aria-pressed={activeTool === tool}
               aria-current={activeTool === tool ? 'true' : undefined}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -157,6 +158,7 @@ function Toolbar({
                 onClick={() => onToolConfigChange({ bold: !toolConfig.bold })}
                 title="Bold"
                 aria-label="Bold"
+                aria-pressed={toolConfig.bold}
               >
                 <strong>B</strong>
               </button>
@@ -165,6 +167,7 @@ function Toolbar({
                 onClick={() => onToolConfigChange({ italic: !toolConfig.italic })}
                 title="Italic"
                 aria-label="Italic"
+                aria-pressed={toolConfig.italic}
               >
                 <em>I</em>
               </button>
@@ -173,6 +176,7 @@ function Toolbar({
                 onClick={() => onToolConfigChange({ underline: !toolConfig.underline })}
                 title="Underline"
                 aria-label="Underline"
+                aria-pressed={toolConfig.underline}
               >
                 <span style={{ textDecoration: 'underline' }}>U</span>
               </button>

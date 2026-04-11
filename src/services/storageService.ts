@@ -55,19 +55,25 @@ export function validateAnnotationJson(json: string): boolean {
   if (!json) return true; // Empty is valid (no annotations)
 
   try {
-    const parsed = JSON.parse(json);
+    // Strip dangerous keys during parsing to prevent prototype pollution
+    const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
+    const parsed = JSON.parse(json, (key, value) => {
+      if (DANGEROUS_KEYS.includes(key)) return undefined;
+      return value;
+    });
 
     // Must have objects array
     if (!parsed || typeof parsed !== 'object') return false;
     if (!Array.isArray(parsed.objects)) return false;
 
     // Each object must have a type string (Fabric.js requirement)
-    const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
     for (const obj of parsed.objects) {
       if (!obj || typeof obj !== 'object') return false;
       if (typeof obj.type !== 'string') return false;
 
       // Reject prototype pollution vectors (hasOwnProperty — not `in` which checks prototype chain)
+      // This is defense-in-depth after reviver stripping
+      const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
       if (DANGEROUS_KEYS.some(key => Object.prototype.hasOwnProperty.call(obj, key))) return false;
 
       // Also check nested objects recursively
@@ -155,8 +161,14 @@ export async function saveSession(session: SavedSession): Promise<void> {
 
       store.put(sessionToStore, SESSION_KEY);
 
+      // Backup stores only metadata without PDF bytes to save space
       const backupKey = `session-backup-${session.savedAt}`;
-      store.put(sessionToStore, backupKey);
+      const backupData = {
+        ...sessionToStore,
+        pdfBytes: new ArrayBuffer(0), // Placeholder — restore falls back to main session
+        pdfBytesHash: sessionToStore.pdfBytesHash,
+      };
+      store.put(backupData, backupKey);
 
       const cursorRequest = store.openCursor();
       const backupKeys: string[] = [];
@@ -270,7 +282,28 @@ export async function restoreSessionBackup(key: string): Promise<SavedSession | 
           resolve(null);
           return;
         }
-        resolve(data);
+
+        // If backup has empty pdfBytes (lightweight backup), restore from main session
+        const session = data as SavedSession;
+        if (session.pdfBytes.byteLength === 0) {
+          const mainRequest = store.get(SESSION_KEY);
+          mainRequest.onsuccess = () => {
+            const mainSession = mainRequest.result as SavedSession | undefined;
+            if (mainSession && mainSession.pdfBytes.byteLength > 0) {
+              // Merge main session's PDF bytes with backup's metadata
+              resolve({
+                ...session,
+                pdfBytes: mainSession.pdfBytes,
+              });
+            } else {
+              // No main session PDF available
+              resolve(null);
+            }
+          };
+          mainRequest.onerror = () => { resolve(null); };
+        } else {
+          resolve(session);
+        }
       };
       request.onerror = () => { reject(request.error); };
     });

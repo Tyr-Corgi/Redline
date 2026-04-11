@@ -150,7 +150,7 @@ body {
     transparent
   );
   margin: 0 8px;
-  box-shadow: 0 0 8px var(--accent-glow);
+  box-shadow: 0 0 6px rgba(79, 140, 255, 0.3);
 }
 
 .toolbar-spacer {
@@ -204,6 +204,8 @@ body {
   color: #ffffff;
   box-shadow: var(--shadow-glow), inset 0 -2px 0 var(--text-primary);
   transform: scale(1.02);
+  border-bottom: 3px solid #ffffff;
+  font-weight: 600;
 }
 
 .tool-btn.active:hover {

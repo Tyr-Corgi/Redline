@@ -10,6 +10,13 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 /** Maximum allowed PDF file size (50 MB) */
 const MAX_PDF_SIZE_BYTES = 50 * 1024 * 1024;
 
+/**
+ * Yield to the main thread to prevent UI freeze during long operations
+ */
+function yieldToMain(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 async function validatePdfBytes(buffer: ArrayBuffer): Promise<boolean> {
   // Check minimum size (header + some content)
   if (buffer.byteLength < 100) return false;
@@ -135,7 +142,8 @@ export async function savePdfWithCanvasOverlays(
     }
   }
 
-  // Embed canvas overlays
+  // Embed canvas overlays with periodic yields to prevent UI freeze
+  let processedCount = 0;
   for (const [pageNum, imageInfo] of canvasImages.entries()) {
     const pageIndex = pageNum - 1; // pageNum is 1-based
     const pages = pdfDoc.getPages();
@@ -151,6 +159,12 @@ export async function savePdfWithCanvasOverlays(
       pdfWidth,
       pdfHeight,
     );
+
+    // Yield every 5 pages to prevent UI freeze
+    processedCount++;
+    if (processedCount % 5 === 0) {
+      await yieldToMain();
+    }
   }
 
   // Remove deleted pages (in reverse order to maintain indices)

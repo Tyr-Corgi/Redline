@@ -85,6 +85,8 @@ export function PageCanvas({
 
   // Track tool announcement for screen readers (Issue 4)
   const [toolAnnouncement, setToolAnnouncement] = useState('');
+  // Track annotation changes for screen readers (WCAG 4.1.3)
+  const [announcement, setAnnouncement] = useState('');
 
   // Render PDF page to background canvas
   const renderPdf = useCallback(async () => {
@@ -161,7 +163,8 @@ export function PageCanvas({
         savedZoomRef,
         liveCanvasJsonRef,
         onAnnotationsChange,
-        onModified
+        onModified,
+        setAnnouncement
       );
     });
 
@@ -391,6 +394,14 @@ export function PageCanvas({
     return () => clearTimeout(timer);
   }, [activeTool]);
 
+  // Clear announcements after 3 seconds to ensure repeated actions trigger
+  useEffect(() => {
+    if (announcement) {
+      const timer = setTimeout(() => setAnnouncement(''), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [announcement]);
+
   // Signature save
   const handleSignatureSave = async (dataUrl: string) => {
     setSignatureOpen(false);
@@ -478,6 +489,20 @@ export function PageCanvas({
         }}
       >
         {toolAnnouncement}
+      </div>
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        style={{
+          position: 'absolute',
+          width: '1px',
+          height: '1px',
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+        }}
+      >
+        {announcement}
       </div>
       <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
       {signatureOpen && (
