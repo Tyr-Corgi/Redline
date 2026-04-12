@@ -120,17 +120,21 @@ export default function App() {
 
   const handleFileSelect = useCallback(
     async (selectedFile: File) => {
-      if (selectedFile?.type === 'application/pdf') {
-        try {
-          pdfBytesRef.current = await selectedFile.arrayBuffer();
-          await openFile(selectedFile);
-        } catch (error) {
-          console.error('Failed to open PDF:', error);
-          setToast({
-            message: `Failed to open PDF: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            type: 'error',
-          });
-        }
+      const isPdf = selectedFile?.type === 'application/pdf' ||
+        selectedFile?.name?.toLowerCase().endsWith('.pdf');
+      if (!isPdf) {
+        setToast({ message: 'Please select a PDF file.', type: 'error' });
+        return;
+      }
+      try {
+        pdfBytesRef.current = await selectedFile.arrayBuffer();
+        await openFile(selectedFile);
+      } catch (error) {
+        console.error('Failed to open PDF:', error);
+        setToast({
+          message: `Failed to open PDF: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          type: 'error',
+        });
       }
     },
     [openFile]

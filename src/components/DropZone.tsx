@@ -41,11 +41,12 @@ export function DropZone({ isDragging, fileInputRef, onFileSelect, onMerge }: Dr
         <input
           ref={fileInputRef}
           type="file"
-          accept="application/pdf"
+          accept="application/pdf,.pdf"
           aria-label="Choose PDF file to open"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) onFileSelect(f);
+            e.target.value = '';
           }}
           style={{ display: 'none' }}
         />
