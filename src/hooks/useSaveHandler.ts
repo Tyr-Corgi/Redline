@@ -48,7 +48,13 @@ export function useSaveHandler(params: SaveHandlerParams): () => Promise<void> {
       const allAnnotations = getAllPageAnnotations();
       const { Canvas: TempFabric } = await import('fabric');
 
+      let pageCount = 0;
       for (const [pageNum, entry] of allAnnotations.entries()) {
+        // Yield every 5 pages to prevent UI freeze
+        if (pageCount > 0 && pageCount % 5 === 0) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        pageCount++;
         try {
           const parsed = JSON.parse(entry.json);
           if (!parsed.objects || parsed.objects.length === 0) continue;
@@ -81,7 +87,7 @@ export function useSaveHandler(params: SaveHandlerParams): () => Promise<void> {
               if (canvasEl?.parentNode) {
                 canvasEl.parentNode.removeChild(canvasEl);
               }
-              tc = null as any;
+              tc = null;
             }
           }
         } catch (error) {

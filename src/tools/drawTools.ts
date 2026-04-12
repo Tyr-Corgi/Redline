@@ -1,6 +1,7 @@
 import type { Canvas as FabricCanvas } from 'fabric';
 import { Rect, Circle, Line, Polygon, Group, IText, Image as FabricImage } from 'fabric';
 import type { FabricObject } from 'fabric';
+import type { FabricMouseEvent } from '../types';
 
 /**
  * Context required for drag-based drawing tools
@@ -37,7 +38,7 @@ export function setupDragRect(ctx: DragToolContext): () => void {
   let startY = 0;
   let rect: Rect | null = null;
 
-  const handleMouseDown = (opt: any) => {
+  const handleMouseDown = (opt: FabricMouseEvent) => {
     if (opt.target) return;
     const pt = canvas.getScenePoint(opt.e);
     drawing = true;
@@ -55,7 +56,7 @@ export function setupDragRect(ctx: DragToolContext): () => void {
     canvas.add(rect);
   };
 
-  const handleMouseMove = (opt: any) => {
+  const handleMouseMove = (opt: FabricMouseEvent) => {
     if (!drawing || !rect) return;
     const pt = canvas.getScenePoint(opt.e);
     const w = pt.x - startX;
@@ -106,7 +107,7 @@ export function setupDragShape(ctx: DragToolContext): () => void {
   let startY = 0;
   let shape: FabricObject | null = null;
 
-  const handleMouseDown = (opt: any) => {
+  const handleMouseDown = (opt: FabricMouseEvent) => {
     if (opt.target) return;
     const pt = canvas.getScenePoint(opt.e);
     drawing = true;
@@ -124,7 +125,7 @@ export function setupDragShape(ctx: DragToolContext): () => void {
     canvas.add(shape);
   };
 
-  const handleMouseMove = (opt: any) => {
+  const handleMouseMove = (opt: FabricMouseEvent) => {
     if (!drawing || !shape) return;
     const pt = canvas.getScenePoint(opt.e);
     const w = pt.x - startX;
@@ -182,7 +183,7 @@ export function setupDragCircle(ctx: DragToolContext): () => void {
   let startY = 0;
   let circle: Circle | null = null;
 
-  const handleMouseDown = (opt: any) => {
+  const handleMouseDown = (opt: FabricMouseEvent) => {
     if (opt.target) return;
     const pt = canvas.getScenePoint(opt.e);
     drawing = true;
@@ -199,7 +200,7 @@ export function setupDragCircle(ctx: DragToolContext): () => void {
     canvas.add(circle);
   };
 
-  const handleMouseMove = (opt: any) => {
+  const handleMouseMove = (opt: FabricMouseEvent) => {
     if (!drawing || !circle) return;
     const pt = canvas.getScenePoint(opt.e);
     const w = pt.x - startX;
@@ -246,7 +247,7 @@ export function setupDragArrow(ctx: DragToolContext): () => void {
   let startY = 0;
   let group: Group | null = null;
 
-  const handleMouseDown = (opt: any) => {
+  const handleMouseDown = (opt: FabricMouseEvent) => {
     if (opt.target) return;
     const pt = canvas.getScenePoint(opt.e);
     drawing = true;
@@ -254,7 +255,7 @@ export function setupDragArrow(ctx: DragToolContext): () => void {
     startY = pt.y;
   };
 
-  const handleMouseMove = (opt: any) => {
+  const handleMouseMove = (opt: FabricMouseEvent) => {
     if (!drawing) return;
     const pt = canvas.getScenePoint(opt.e);
     const endX = pt.x;
@@ -332,7 +333,7 @@ export function setupStampTool(ctx: ClickToolContext): () => void {
     void: '#b91c1c',
   };
 
-  const handleMouseDown = (opt: any) => {
+  const handleMouseDown = (opt: FabricMouseEvent) => {
     if (opt.target) return;
     const pt = canvas.getScenePoint(opt.e);
     const color = stampColors[stampType] || '#ef4444';
@@ -368,7 +369,7 @@ export function setupCheckboxTool(ctx: ClickToolContext): () => void {
   const { canvas, checkboxStyle = 'check' } = ctx;
   const CHECKBOX_SIZE = 22;
 
-  const handleMouseDown = (opt: any) => {
+  const handleMouseDown = (opt: FabricMouseEvent) => {
     if (opt.target) return;
     const pt = canvas.getScenePoint(opt.e);
     const size = CHECKBOX_SIZE;
@@ -427,7 +428,7 @@ export function setupCheckboxTool(ctx: ClickToolContext): () => void {
 export function setupDateTool(ctx: ClickToolContext): () => void {
   const { canvas, fontSize = 14, fontFamily = 'Arial', color = '#000000' } = ctx;
 
-  const handleMouseDown = (opt: any) => {
+  const handleMouseDown = (opt: FabricMouseEvent) => {
     if (opt.target) return;
     const pt = canvas.getScenePoint(opt.e);
     const today = new Date().toLocaleDateString();

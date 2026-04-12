@@ -28,6 +28,23 @@ async function getFabric() {
 // Constants
 const IMAGE_DEFAULT_WIDTH = 200;
 
+/**
+ * Annotation Data Flow Architecture:
+ *
+ * 1. LIVE STATE: Fabric.js canvas owns the live annotation objects.
+ *    This is the single source of truth while the user is editing.
+ *
+ * 2. SERIALIZED SNAPSHOTS: When annotations change, canvas.toJSON()
+ *    serializes them to liveCanvasJsonRef (immediate) and
+ *    onAnnotationsChange callback (debounced to parent).
+ *
+ * 3. RESTORE: When switching pages, savedAnnotations prop provides
+ *    the serialized JSON to restore into a fresh Fabric canvas.
+ *
+ * This dual representation is required because Fabric.js is imperative
+ * and React is declarative — refs bridge the gap.
+ */
+
 // Interface for accessing Fabric.js IText internal textarea (Issue 1)
 interface FabricITextWithTextarea {
   hiddenTextarea?: HTMLTextAreaElement;
@@ -82,6 +99,8 @@ export function PageCanvas({
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
   // Track mounted state to prevent state updates after unmount (Issue 3)
   const isMountedRef = useRef(true);
+  // Track in-flight canvas initialization to cancel on rapid page switches (Critical #7)
+  const initAbortRef = useRef<AbortController | null>(null);
 
   // Track tool announcement for screen readers (Issue 4)
   const [toolAnnouncement, setToolAnnouncement] = useState('');
@@ -140,8 +159,15 @@ export function PageCanvas({
     let fc: FabricCanvas | null = null;
     let mounted = true;
 
+    // Abort any previous initialization to prevent race conditions (Critical #7)
+    if (initAbortRef.current) {
+      initAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    initAbortRef.current = abortController;
+
     getFabric().then(async (fabric) => {
-      if (!mounted) return;
+      if (!mounted || abortController.signal.aborted) return;
 
       fc = await initializeFabricCanvas(
         fabric,
@@ -151,6 +177,8 @@ export function PageCanvas({
         zoom,
         onCanvasReady
       );
+
+      if (abortController.signal.aborted) return;
 
       fabricRef.current = fc;
       savedZoomRef.current = zoom;
@@ -170,6 +198,7 @@ export function PageCanvas({
 
     return () => {
       mounted = false;
+      abortController.abort();
       // Save raw annotations + zoom before disposing
       if (fabricRef.current) {
         const rawJson = JSON.stringify(fabricRef.current.toJSON());

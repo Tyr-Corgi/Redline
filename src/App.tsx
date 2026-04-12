@@ -82,22 +82,36 @@ export default function App() {
   const fabricCanvasRef = useRef<FabricCanvasWithOverlay | null>(null);
   const pdfBytesRef = useRef<ArrayBuffer | null>(null);
   const autoSaverRef = useRef(createDebouncedSaver(AUTO_SAVE_DEBOUNCE_MS));
-  const latestStateRef = useRef({ file, currentPage, zoom });
+
   /**
-   * Zoom architecture:
-   * - Primary source of truth: `zoom` state (from usePdfEditor hook)
-   * - latestZoomRef: Required for useTouchZoom to avoid stale closures in touch event handlers
-   *   (touch events don't re-subscribe to state changes, so ref access is necessary)
-   * - annotationZooms: Per-page zoom metadata stored with annotations for proper scaling during restore
-   * - savedZoomRef: Used in useSaveHandler for snapshot metadata
+   * Ref-based state synchronization architecture:
    *
-   * All refs are kept in sync with state. The ref is needed only where event closures would capture stale state.
+   * WHY REFS ARE NEEDED:
+   * Fabric.js canvas event callbacks (object:modified, path:created, etc.) and touch event handlers
+   * capture closures at registration time. When these callbacks execute, they have stale references
+   * to React state. Refs provide a mutable container that always points to the latest state, bridging
+   * the gap between React's declarative state model and Fabric's imperative event system.
+   *
+   * CONSOLIDATED EDITOR STATE:
+   * - latestEditorRef: Consolidates file, currentPage, and zoom state for callbacks that need current editor context
+   *   (used in triggerAutoSave and other imperative operations that fire from non-React event sources)
+   * - latestZoomRef: Separate zoom ref required by useTouchZoom hook (expects RefObject<number>)
+   *
+   * OTHER STATE REFS:
+   * - isRestoringHistoryRef: Guards against circular loops during undo/redo history restoration
+   * - pageAnnotationsRef: Per-page annotation storage with zoom metadata for proper scaling during restore
+   *
+   * All refs are kept in sync with state via assignment in component body (runs on every render).
+   * The refs are only accessed where event closures would otherwise capture stale state.
    */
+  const latestEditorRef = useRef({ file, currentPage, zoom });
   const latestZoomRef = useRef(zoom);
   const isRestoringHistoryRef = useRef(false);
   const pageAnnotationsRef = useRef<Map<number, { json: string; zoom: number }>>(new Map());
   const documentAreaRef = useRef<HTMLDivElement>(null);
-  latestStateRef.current = { file, currentPage, zoom };
+
+  // Keep refs in sync with state (runs every render)
+  latestEditorRef.current = { file, currentPage, zoom };
   latestZoomRef.current = zoom;
 
   // Toast auto-dismiss
@@ -212,7 +226,7 @@ export default function App() {
 
   // Issue 3: Memoize triggerAutoSave
   const triggerAutoSave = useCallback(() => {
-    const { file: currentFile, currentPage: page, zoom: currentZoom } = latestStateRef.current;
+    const { file: currentFile, currentPage: page, zoom: currentZoom } = latestEditorRef.current;
     if (!pdfBytesRef.current || !currentFile) return;
     setSaveStatus('saving');
     const annotations: Record<number, string> = {};

@@ -35,15 +35,19 @@ function PageSidebarComponent({
   const THUMB_HEIGHT = 200; // approximate height per thumbnail slot including padding
   const BUFFER = 3; // render 3 extra above and below viewport
 
+  // Initialize IntersectionObserver once. Cleanup on unmount prevents memory leaks.
+  // Safe from double-mount in StrictMode due to ref check.
   useEffect(() => {
-    observerRef.current = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          const pageNum = Number(entry.target.getAttribute('data-page'));
-          if (pageNum) setVisibleThumbnails(prev => new Set(prev).add(pageNum));
-        }
-      });
-    }, { rootMargin: '100px' });
+    if (!observerRef.current) {
+      observerRef.current = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const pageNum = Number(entry.target.getAttribute('data-page'));
+            if (pageNum) setVisibleThumbnails(prev => new Set(prev).add(pageNum));
+          }
+        });
+      }, { rootMargin: '100px' });
+    }
 
     return () => observerRef.current?.disconnect();
   }, []);

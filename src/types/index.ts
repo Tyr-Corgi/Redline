@@ -13,6 +13,28 @@ export interface ToolConfig {
   stampType: string;
 }
 
+/**
+ * Minimal Fabric.js canvas interface for keyboard shortcut operations
+ */
+export interface FabricCanvasRef {
+  getActiveObjects(): unknown[];
+  getActiveObject(): unknown | null;
+  remove(...objects: unknown[]): void;
+  discardActiveObject(): void;
+  renderAll(): void;
+}
+
+/**
+ * Fabric.js mouse event interface for draw tool event handlers
+ * TPointerEvent can be MouseEvent or TouchEvent
+ */
+export interface FabricMouseEvent {
+  e: MouseEvent | TouchEvent;
+  target?: unknown;
+  pointer?: { x: number; y: number };
+  absolutePointer?: { x: number; y: number };
+}
+
 export interface HistoryEntry {
   type: 'add' | 'remove' | 'modify';
   page: number;

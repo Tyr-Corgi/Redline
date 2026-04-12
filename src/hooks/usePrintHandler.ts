@@ -149,7 +149,7 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
               if (canvasEl?.parentNode) {
                 canvasEl.parentNode.removeChild(canvasEl);
               }
-              tc = null as any;
+              tc = null;
             }
           }
         }

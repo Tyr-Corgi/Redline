@@ -132,6 +132,8 @@ export function usePdfEditor() {
   const pageAnnotationsRef = useRef<Map<number, { json: string; zoom: number }>>(new Map());
 
   const openFile = useCallback(async (file: File) => {
+    // Clear annotations atomically before loading new file
+    // to prevent stale data from previous document
     pageAnnotationsRef.current.clear();
     const pdfDoc: PDFDocumentProxy = await loadPdf(file);
     dispatch({

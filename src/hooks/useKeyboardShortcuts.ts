@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { Tool } from '../types';
+import type { Tool, FabricCanvasRef } from '../types';
 
 interface KeyboardShortcutActions {
   onUndo: () => void;
@@ -12,7 +12,7 @@ interface KeyboardShortcutActions {
   onOpenFile: () => void;
   canUndo: boolean;
   canRedo: boolean;
-  fabricCanvasRef: React.RefObject<any>;
+  fabricCanvasRef: React.RefObject<FabricCanvasRef | null>;
 }
 
 function isTyping(e: KeyboardEvent): boolean {
@@ -85,13 +85,13 @@ export function useKeyboardShortcuts(actions: KeyboardShortcutActions): void {
         const active = canvas.getActiveObject();
         if (!active) return;
         // Don't delete if the user is editing text inside the object
-        if ('isEditing' in active && (active as unknown as { isEditing: boolean }).isEditing) return;
+        if (active && typeof active === 'object' && 'isEditing' in active && (active as { isEditing: boolean }).isEditing) return;
         e.preventDefault();
         // Handle grouped selection (multiple objects selected)
         const activeObjects = canvas.getActiveObjects();
         if (activeObjects.length > 0) {
           canvas.discardActiveObject();
-          activeObjects.forEach((obj: any) => canvas.remove(obj));
+          activeObjects.forEach((obj: unknown) => canvas.remove(obj));
         } else {
           canvas.remove(active);
         }
