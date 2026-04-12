@@ -6,11 +6,18 @@
     <meta name="description" content="Client-side PDF editor" />
     <meta name="theme-color" content="#1e1e2e" />
     <!-- CSP: wasm-unsafe-eval required for PDF.js WASM decoder (cannot be removed).
+         style-src 'unsafe-inline' required for Fabric.js canvas element manipulation (cannot be removed).
          frame-ancestors 'none' mitigates clickjacking. Monitor pdfjs-dist for CVEs. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; worker-src 'self' blob:; frame-ancestors 'none';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none';">
     <title>Redline</title>
   </head>
   <body>
+    <noscript>
+      <div style="padding: 2rem; text-align: center; font-family: system-ui, sans-serif;">
+        <h1>JavaScript Required</h1>
+        <p>Redline PDF Editor requires JavaScript to run. Please enable JavaScript in your browser settings.</p>
+      </div>
+    </noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

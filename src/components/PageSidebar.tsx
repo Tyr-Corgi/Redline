@@ -155,10 +155,10 @@ function PageThumbnail({ pdfDoc, pageNum, isActive, onClick, rotation, onRotate,
 
     try {
       const page = await pdfDoc.getPage(pageNum);
-      // Scale to fit ~150px width
+      // Calculate target scale directly to avoid intermediate 1.0-scale viewport
       const baseViewport = page.getViewport({ scale: 1 });
       const thumbScale = 150 / baseViewport.width;
-      const viewport = page.getViewport({ scale: thumbScale });
+      const viewport = baseViewport.clone({ scale: thumbScale });
 
       const dpr = window.devicePixelRatio || 1;
       canvas.width = viewport.width * dpr;

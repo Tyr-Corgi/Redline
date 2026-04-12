@@ -10,6 +10,21 @@ const STORE_NAME = 'session';
 const SESSION_KEY = 'current';
 const MAX_STORED_SESSIONS = 5;
 
+// Dirty page tracking for optimized auto-save
+const dirtyPages = new Set<number>();
+
+export function markPageDirty(page: number): void {
+  dirtyPages.add(page);
+}
+
+export function getDirtyPages(): Set<number> {
+  return new Set(dirtyPages);
+}
+
+export function clearDirtyPages(): void {
+  dirtyPages.clear();
+}
+
 export interface SavedSession {
   pdfBytes: ArrayBuffer;
   pdfFileName: string;

@@ -166,10 +166,8 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
             }
           }
           body.appendChild(printPageDiv);
-        }
 
-        // Yield to main thread between batches
-        if (batchEnd < pageNumbers.length) {
+          // C9 FIX: Yield after EVERY page to keep UI responsive
           await new Promise(resolve => setTimeout(resolve, 0));
         }
       }

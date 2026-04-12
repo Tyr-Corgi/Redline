@@ -12,7 +12,7 @@ import { DropZone } from './components/DropZone';
 import { ToastNotification } from './components/ToastNotification';
 import { ConfirmDialog } from './components/ConfirmDialog';
 const MergePdfModal = lazy(() => import('./components/MergePdfModal'));
-import { loadSession, clearSession, createDebouncedSaver } from './services/storageService';
+import { loadSession, clearSession, createDebouncedSaver, markPageDirty } from './services/storageService';
 import type { Canvas as FabricCanvas } from 'fabric';
 
 type FabricCanvasWithOverlay = FabricCanvas & {
@@ -31,11 +31,9 @@ interface FabricTextObject {
 }
 
 export default function App() {
-  // Named constants
   const AUTO_SAVE_DEBOUNCE_MS = 2000;
   const SAVE_STATUS_DELAY_MS = 900;
   const SAVE_STATUS_RESET_MS = 3500;
-
   const [isBusy, setIsBusy] = useState(false);
 
   const {
@@ -77,36 +75,30 @@ export default function App() {
   const [restoringSession, setRestoringSession] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'info' } | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ message: string; onConfirm: () => void } | null>(null);
-  const [statusAnnouncement, setStatusAnnouncement] = useState<string>('');
+  const [statusAnnouncement, setStatusAnnouncement] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fabricCanvasRef = useRef<FabricCanvasWithOverlay | null>(null);
   const pdfBytesRef = useRef<ArrayBuffer | null>(null);
   const autoSaverRef = useRef(createDebouncedSaver(AUTO_SAVE_DEBOUNCE_MS));
-
-  // Refs bridge React state with Fabric.js imperative callbacks (closures capture stale state otherwise)
   const latestEditorRef = useRef({ file, currentPage, zoom });
   const latestZoomRef = useRef(zoom);
   const isRestoringHistoryRef = useRef(false);
   const pageAnnotationsRef = useRef<Map<number, { json: string; zoom: number }>>(new Map());
   const documentAreaRef = useRef<HTMLDivElement>(null);
-
-  // Sync refs with state on every render
+  const canvasDirtyRef = useRef(false);
+  const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   latestEditorRef.current = { file, currentPage, zoom };
   latestZoomRef.current = zoom;
 
-  // Auto-dismiss toast after 5s
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 5000);
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Update title with filename
   useEffect(() => {
     document.title = file ? `${file.name} — Redline` : 'Redline';
   }, [file]);
-
-  // Non-blocking session restore
   useEffect(() => {
     setRestoringSession(false);
     (async () => {
@@ -124,10 +116,8 @@ export default function App() {
         console.error('Failed to restore session:', err);
       }
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Memoized file selection handler
   const handleFileSelect = useCallback(
     async (selectedFile: File) => {
       if (selectedFile?.type === 'application/pdf') {
@@ -146,7 +136,6 @@ export default function App() {
     [openFile]
   );
 
-  // Memoized merge handler
   const handleMergedOpen = useCallback(
     async (bytes: ArrayBuffer, fileName: string) => {
       autoSaverRef.current.cancel();
@@ -157,7 +146,6 @@ export default function App() {
     [openFromBytes]
   );
 
-  // Memoized new project handler
   const handleNewProject = useCallback(async () => {
     if (file) {
       setConfirmAction({
@@ -179,7 +167,6 @@ export default function App() {
     await clearSession();
   }, [file, clearFile]);
 
-  // Memoized tool config handler
   const handleToolConfigChange = useCallback(
     (config: Parameters<typeof setToolConfig>[0]) => {
       setToolConfig(config);
@@ -204,7 +191,6 @@ export default function App() {
     [setToolConfig]
   );
 
-  // Memoized auto-save trigger
   const triggerAutoSave = useCallback(() => {
     const { file: currentFile, currentPage: page, zoom: currentZoom } = latestEditorRef.current;
     if (!pdfBytesRef.current || !currentFile) return;
@@ -232,32 +218,35 @@ export default function App() {
     setTimeout(() => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)), SAVE_STATUS_RESET_MS);
   }, [getAllPageAnnotations]);
 
-  // Track page changes for auto-save
   const prevPageRef = useRef<number>(currentPage);
   useEffect(() => {
     if (prevPageRef.current !== currentPage) {
+      // Flush pending history before changing pages
+      if (historyTimerRef.current) {
+        clearTimeout(historyTimerRef.current);
+        historyTimerRef.current = null;
+        if (canvasDirtyRef.current && fabricCanvasRef.current) {
+          const rawSnapshot = JSON.stringify(fabricCanvasRef.current.toJSON());
+          pushHistory(prevPageRef.current, rawSnapshot);
+          canvasDirtyRef.current = false;
+        }
+      }
       prevPageRef.current = currentPage;
       triggerAutoSave();
       if (numPages > 0) {
         setStatusAnnouncement(`Page ${currentPage} of ${numPages}`);
       }
     }
-  }, [currentPage, triggerAutoSave, numPages]);
+  }, [currentPage, triggerAutoSave, numPages, pushHistory]);
 
-  // Undo/redo restoration
   const lastHistoryIndexRef = useRef<number>(-1);
   useEffect(() => {
     if (historyIndex === lastHistoryIndexRef.current) return;
     lastHistoryIndexRef.current = historyIndex;
-
     if (historyIndex < 0 || historyIndex >= history.length) return;
     const entry = history[historyIndex];
     if (!entry || entry.page !== currentPage || !fabricCanvasRef.current) return;
-
-    // Guard to prevent circular loops during history restoration
     isRestoringHistoryRef.current = true;
-
-    // Suppress modification events during restore
     const canvas = fabricCanvasRef.current;
     canvas.off('object:modified');
     canvas.off('object:added');
@@ -265,18 +254,14 @@ export default function App() {
     canvas.off('path:created');
     canvas.selection = false;
     canvas.discardActiveObject();
-
-    // Restore canvas JSON directly (snapshot stored at current zoom)
     canvas.loadFromJSON(entry.snapshot).then(() => {
       canvas.renderAll();
       canvas.selection = true;
       savePageAnnotations(currentPage, entry.snapshot, zoom);
-      // Clear guard after restore
       isRestoringHistoryRef.current = false;
     });
   }, [historyIndex, history, currentPage, zoom, savePageAnnotations]);
 
-  // Save handler (extracted to hook)
   const handleSave = useSaveHandler({
     file,
     pdfDoc,
@@ -292,7 +277,6 @@ export default function App() {
     onToast: (msg, type = 'info') => setToast({ message: msg, type }),
   });
 
-  // Print handler (extracted to hook)
   const handlePrint = usePrintHandler({
     pdfDoc,
     pdfBytesRef,
@@ -309,7 +293,6 @@ export default function App() {
     getAllPageAnnotations,
   });
 
-  // Flush auto-save before tab close
   useEffect(() => {
     if (!file) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -320,14 +303,13 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [file]);
 
-  // Keyboard & touch hooks
   useKeyboardShortcuts({
     onUndo: undo,
     onRedo: redo,
     onSave: handleSave,
     onZoomIn: useCallback(() => setZoom(Math.min(4, zoom + 0.25)), [zoom, setZoom]),
     onZoomOut: useCallback(() => setZoom(Math.max(0.25, zoom - 0.25)), [zoom, setZoom]),
-    onDelete: useCallback(() => {}, []),
+    onDelete: () => {},
     onToolChange: setTool,
     onOpenFile: useCallback(() => fileInputRef.current?.click(), []),
     canUndo,
@@ -337,7 +319,6 @@ export default function App() {
 
   useTouchZoom({ zoom, setZoom, latestZoomRef }, documentAreaRef);
 
-  // Drag & drop
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -367,21 +348,16 @@ export default function App() {
     [zoom, setZoom]
   );
 
-  // Clean up annotations on page deletion
-  const handleDeletePage = useCallback(
-    (pageNum: number) => {
-      deletePage(pageNum);
-      pageAnnotationsRef.current.delete(pageNum);
-    },
-    [deletePage]
-  );
+  const handleDeletePage = useCallback((pageNum: number) => {
+    deletePage(pageNum);
+    pageAnnotationsRef.current.delete(pageNum);
+  }, [deletePage]);
 
   return (
     <div className="app">
       <a href="#document-area" className="skip-link">
         Skip to document
       </a>
-      {/* Error boundary for Toolbar */}
       <ErrorBoundary>
         <Toolbar
           activeTool={activeTool}
@@ -405,8 +381,6 @@ export default function App() {
           onRedo={redo}
         />
       </ErrorBoundary>
-
-      {/* Error boundary for modal */}
       {showMergeModal && (
         <ErrorBoundary>
           <Suspense fallback={null}>
@@ -421,7 +395,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Session restore indicator */}
       {restoringSession && (
         <div
           style={{
@@ -472,7 +445,6 @@ export default function App() {
               onMerge={() => setShowMergeModal(true)}
             />
           ) : (
-            /* Error boundary for canvas */
             <ErrorBoundary>
               <PageCanvas
                 key={currentPage}
@@ -488,10 +460,17 @@ export default function App() {
                 }}
                 onModified={() => {
                   if (isRestoringHistoryRef.current) return;
-                  if (fabricCanvasRef.current) {
-                    const rawSnapshot = JSON.stringify(fabricCanvasRef.current.toJSON());
-                    pushHistory(currentPage, rawSnapshot);
-                  }
+                  canvasDirtyRef.current = true;
+                  markPageDirty(currentPage);
+                  if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+                  historyTimerRef.current = setTimeout(() => {
+                    if (fabricCanvasRef.current && canvasDirtyRef.current) {
+                      const rawSnapshot = JSON.stringify(fabricCanvasRef.current.toJSON());
+                      pushHistory(currentPage, rawSnapshot);
+                      canvasDirtyRef.current = false;
+                    }
+                    historyTimerRef.current = null;
+                  }, 300);
                 }}
                 onAnnotationsChange={(page, json, annotZoom) => {
                   savePageAnnotations(page, json, annotZoom);
@@ -513,7 +492,6 @@ export default function App() {
         />
       )}
 
-      {/* SR status announcements */}
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {statusAnnouncement}
       </div>

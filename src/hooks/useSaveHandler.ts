@@ -48,50 +48,63 @@ export function useSaveHandler(params: SaveHandlerParams): () => Promise<void> {
       const allAnnotations = getAllPageAnnotations();
       const { Canvas: TempFabric } = await import('fabric');
 
-      let pageCount = 0;
-      for (const [pageNum, entry] of allAnnotations.entries()) {
-        // Yield every page to prevent UI freeze
-        if (pageCount > 0) {
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
-        pageCount++;
-        try {
-          const parsed = JSON.parse(entry.json);
-          if (!parsed.objects || parsed.objects.length === 0) continue;
+      // C8 FIX: Create ONE reusable canvas instance for all pages
+      const tempCanvas = document.createElement('canvas');
+      let reusableCanvas: InstanceType<typeof TempFabric> | null = null;
 
-          const page = await pdfDoc.getPage(pageNum);
-          const rotation = pageRotations[pageNum] || 0;
-          const storedViewport = page.getViewport({ scale: entry.zoom, rotation });
-          const baseViewport = page.getViewport({ scale: 1.0, rotation });
-
-          const tempCanvas = document.createElement('canvas');
-          let tc: InstanceType<typeof TempFabric> | null = null;
+      try {
+        let pageCount = 0;
+        for (const [pageNum, entry] of allAnnotations.entries()) {
+          // Yield every page to prevent UI freeze
+          if (pageCount > 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+          pageCount++;
           try {
-            tc = new TempFabric(tempCanvas, {
-              width: storedViewport.width,
-              height: storedViewport.height,
-            });
-            await tc.loadFromJSON(entry.json);
-            tc.renderAll();
-            const dataUrl = tc.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
+            const parsed = JSON.parse(entry.json);
+            if (!parsed.objects || parsed.objects.length === 0) continue;
+
+            const page = await pdfDoc.getPage(pageNum);
+            const rotation = pageRotations[pageNum] || 0;
+            const storedViewport = page.getViewport({ scale: entry.zoom, rotation });
+            const baseViewport = page.getViewport({ scale: 1.0, rotation });
+
+            // Create canvas on first use, reuse for subsequent pages
+            if (!reusableCanvas) {
+              reusableCanvas = new TempFabric(tempCanvas, {
+                width: storedViewport.width,
+                height: storedViewport.height,
+              });
+            } else {
+              // Resize and clear for next page
+              reusableCanvas.setDimensions({
+                width: storedViewport.width,
+                height: storedViewport.height,
+              });
+              reusableCanvas.clear();
+            }
+
+            await reusableCanvas.loadFromJSON(entry.json);
+            reusableCanvas.renderAll();
+            const dataUrl = reusableCanvas.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
             canvasImages.set(pageNum, {
               dataUrl,
               width: baseViewport.width,
               height: baseViewport.height,
             });
-          } finally {
-            if (tc) {
-              tc.dispose();
-              // Clean up DOM element
-              const canvasEl = tc.getElement();
-              if (canvasEl?.parentNode) {
-                canvasEl.parentNode.removeChild(canvasEl);
-              }
-              tc = null;
-            }
+          } catch (error) {
+            console.warn('[Redline]', error);
           }
-        } catch (error) {
-          console.warn('[Redline]', error);
+        }
+      } finally {
+        // Dispose the single reusable canvas after all pages processed
+        if (reusableCanvas) {
+          reusableCanvas.dispose();
+          const canvasEl = reusableCanvas.getElement();
+          if (canvasEl?.parentNode) {
+            canvasEl.parentNode.removeChild(canvasEl);
+          }
+          reusableCanvas = null;
         }
       }
 

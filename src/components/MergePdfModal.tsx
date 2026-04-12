@@ -164,6 +164,7 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
                 e.target.value = '';
               }}
               style={{ display: 'none' }}
+              aria-label="Select PDF files to merge"
             />
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ opacity: 0.5 }}>
               <path d="M12 5v14M5 12h14" />

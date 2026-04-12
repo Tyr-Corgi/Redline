@@ -3,17 +3,11 @@ import type { Canvas as FabricCanvas } from 'fabric';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { Tool, ToolConfig } from '../types';
 import {
-  setupDragRect,
-  setupDragShape,
-  setupDragCircle,
-  setupDragArrow,
-  setupStampTool,
-  setupCheckboxTool,
-  setupDateTool,
   renderPdfPage,
   initializeFabricCanvas,
   setupAnnotationListeners,
 } from '../tools';
+import { setupToolHandlers } from '../tools/setupToolHandlers';
 const SignatureModal = lazy(() => import('./SignatureModal').then(m => ({ default: m.SignatureModal })));
 
 // Lazy load Fabric.js module
@@ -29,175 +23,6 @@ async function getFabric() {
 
 // Constants
 const IMAGE_DEFAULT_WIDTH = 200;
-
-/**
- * Setup tool-specific event handlers and configurations on the Fabric canvas.
- * Extracted from useEffect to reduce component line count.
- * @returns Cleanup function for drag tools, or null
- */
-async function setupToolHandlers(
-  canvas: FabricCanvas,
-  activeTool: Tool,
-  toolConfig: ToolConfig,
-  prevActiveToolRef: React.MutableRefObject<Tool>,
-  setSignatureOpen: (open: boolean) => void,
-  imageInputRef: React.RefObject<HTMLInputElement | null>,
-  dragRafRef: React.MutableRefObject<number | null>
-): Promise<(() => void) | null> {
-  const fabric = await getFabric();
-  let dragToolCleanup: (() => void) | null = null;
-
-  switch (activeTool) {
-    case 'select':
-      break;
-
-    case 'text':
-      canvas.on('mouse:down', (opt) => {
-        if (opt.target) return;
-        const pt = canvas.getScenePoint(opt.e);
-        const text = new fabric.IText('Type here', {
-          left: pt.x,
-          top: pt.y,
-          originX: 'left',
-          originY: 'bottom',
-          fontSize: toolConfig.fontSize,
-          fontFamily: toolConfig.fontFamily,
-          fontWeight: toolConfig.bold ? 'bold' : 'normal',
-          fontStyle: toolConfig.italic ? 'italic' : 'normal',
-          underline: toolConfig.underline,
-          fill: toolConfig.color,
-          stroke: toolConfig.color,
-          strokeWidth: 0.5,
-          paintFirst: 'stroke',
-          selectable: true,
-          editable: true,
-        });
-        canvas.add(text);
-        canvas.setActiveObject(text);
-        // Defer editing entry past Fabric's full mouse event cycle (mouse:down → mouse:up).
-        // A single requestAnimationFrame isn't enough because Fabric's mouse:up fires
-        // after the first frame and can steal focus. Using setTimeout(0) ensures we run
-        // after Fabric's entire event pipeline completes.
-        setTimeout(() => {
-          text.enterEditing();
-          text.selectAll();
-          // Ensure the hidden textarea has focus for keyboard capture (Issue 1)
-          const hiddenInput = (text as FabricITextWithTextarea).hiddenTextarea;
-          hiddenInput?.focus();
-        }, 0);
-      });
-      break;
-
-    case 'draw': {
-      canvas.isDrawingMode = true;
-      const brush = new fabric.PencilBrush(canvas);
-      brush.width = toolConfig.lineWidth;
-      brush.color = toolConfig.color;
-      canvas.freeDrawingBrush = brush;
-      break;
-    }
-
-    case 'highlight':
-      dragToolCleanup = setupDragRect({
-        canvas,
-        color: toolConfig.color || '#FFFF00',
-        opacity: toolConfig.opacity,
-        strokeWidth: toolConfig.lineWidth,
-        rafRef: dragRafRef,
-      });
-      break;
-
-    case 'redact':
-      dragToolCleanup = setupDragRect({
-        canvas,
-        color: '#000000',
-        opacity: 1.0,
-        strokeWidth: toolConfig.lineWidth,
-        rafRef: dragRafRef,
-      });
-      break;
-
-    case 'arrow':
-      dragToolCleanup = setupDragArrow({
-        canvas,
-        color: toolConfig.color,
-        opacity: toolConfig.opacity,
-        strokeWidth: toolConfig.lineWidth,
-        rafRef: dragRafRef,
-      });
-      break;
-
-    case 'circle':
-      dragToolCleanup = setupDragCircle({
-        canvas,
-        color: toolConfig.color,
-        opacity: toolConfig.opacity,
-        strokeWidth: toolConfig.lineWidth,
-        rafRef: dragRafRef,
-      });
-      break;
-
-    case 'stamp':
-      dragToolCleanup = setupStampTool({
-        canvas,
-        stampType: toolConfig.stampType,
-      });
-      break;
-
-    case 'checkbox':
-      dragToolCleanup = setupCheckboxTool({
-        canvas,
-        checkboxStyle: toolConfig.checkboxStyle,
-      });
-      break;
-
-    case 'date':
-      dragToolCleanup = setupDateTool({
-        canvas,
-        fontSize: toolConfig.fontSize,
-        fontFamily: toolConfig.fontFamily,
-        color: toolConfig.color,
-      });
-      break;
-
-    case 'shape':
-      dragToolCleanup = setupDragShape({
-        canvas,
-        color: toolConfig.color,
-        opacity: toolConfig.opacity,
-        strokeWidth: toolConfig.lineWidth,
-        rafRef: dragRafRef,
-      });
-      break;
-
-    case 'eraser':
-      canvas.on('mouse:down', (opt) => {
-        if (opt.target) {
-          canvas.remove(opt.target);
-          canvas.renderAll();
-        }
-      });
-      break;
-
-    case 'signature':
-      // Only open modal when user explicitly switches to this tool, not on remount
-      if (prevActiveToolRef.current !== 'signature') {
-        setSignatureOpen(true);
-      }
-      break;
-
-    case 'image':
-      // Only trigger file picker when user explicitly switches to this tool,
-      // not when PageCanvas remounts due to page navigation
-      if (prevActiveToolRef.current !== 'image') {
-        imageInputRef.current?.click();
-      }
-      break;
-  }
-
-  prevActiveToolRef.current = activeTool;
-  return dragToolCleanup;
-}
 
 /**
  * Annotation Data Flow Architecture:
@@ -216,11 +41,6 @@ async function setupToolHandlers(
  * and React is declarative — refs bridge the gap.
  */
 
-// Interface for accessing Fabric.js IText internal textarea (Issue 1)
-interface FabricITextWithTextarea {
-  hiddenTextarea?: HTMLTextAreaElement;
-}
-
 interface PageCanvasProps {
   pageNum: number;
   pdfDoc: PDFDocumentProxy;
@@ -235,6 +55,11 @@ interface PageCanvasProps {
   onToast?: (message: string, type: 'error' | 'info') => void;
 }
 
+/**
+ * PageCanvas component uses key-based remounting on page changes, which causes
+ * full canvas recreation. This is intentional due to Fabric.js lifecycle requirements
+ * (clean canvas state per page). Canvas pooling is a future optimization (Issue C4).
+ */
 export function PageCanvas({
   pageNum,
   pdfDoc,
@@ -473,9 +298,19 @@ export function PageCanvas({
 
   // Image upload
   const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+  const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'];
+
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !fabricRef.current) return;
+
+    // Validate MIME type to prevent data URL injection (Issue C2)
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      onToast?.(`Invalid file type. Only images are allowed (PNG, JPEG, GIF, WebP, SVG).`, 'error');
+      e.target.value = '';
+      return;
+    }
+
     if (file.size > MAX_IMAGE_SIZE_BYTES) {
       onToast?.(`Image too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum size is 10 MB.`, 'error');
       e.target.value = '';
@@ -561,7 +396,7 @@ export function PageCanvas({
       >
         {announcement}
       </div>
-      <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
+      <input ref={imageInputRef} type="file" accept="image/*" aria-label="Upload image annotation" style={{ display: 'none' }} onChange={handleImageUpload} />
       {signatureOpen && (
         <Suspense fallback={null}>
           <SignatureModal onSave={handleSignatureSave} onCancel={() => setSignatureOpen(false)} />
