@@ -137,6 +137,12 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
           <div
             className="merge-upload-zone"
             onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
             onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }}
             onDragLeave={(e) => { e.currentTarget.classList.remove('drag-over'); }}
             onDrop={(e) => {
@@ -144,6 +150,9 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
               e.currentTarget.classList.remove('drag-over');
               if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files);
             }}
+            tabIndex={0}
+            role="button"
+            aria-label="Add PDF files for merging"
           >
             <input
               ref={fileInputRef}

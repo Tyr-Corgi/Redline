@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState, memo } from 'react';
+import { useRef, useEffect, useCallback, useState, memo, useMemo } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 interface PageSidebarProps {
@@ -90,15 +90,17 @@ function PageSidebarComponent({
     }
   }, [currentPage, visiblePages, scrollTop, containerHeight, THUMB_HEIGHT]);
 
-  // Calculate which thumbnails to render based on scroll position
-  const startIndex = Math.max(0, Math.floor(scrollTop / THUMB_HEIGHT) - BUFFER);
-  const endIndex = Math.min(
-    visiblePages.length - 1,
-    Math.ceil((scrollTop + containerHeight) / THUMB_HEIGHT) + BUFFER
-  );
-
-  const topSpacer = startIndex * THUMB_HEIGHT;
-  const bottomSpacer = (visiblePages.length - endIndex - 1) * THUMB_HEIGHT;
+  // Calculate which thumbnails to render based on scroll position (memoized to prevent recalc on every render)
+  const { startIndex, endIndex, topSpacer, bottomSpacer } = useMemo(() => {
+    const start = Math.max(0, Math.floor(scrollTop / THUMB_HEIGHT) - BUFFER);
+    const end = Math.min(
+      visiblePages.length - 1,
+      Math.ceil((scrollTop + containerHeight) / THUMB_HEIGHT) + BUFFER
+    );
+    const top = start * THUMB_HEIGHT;
+    const bottom = (visiblePages.length - end - 1) * THUMB_HEIGHT;
+    return { startIndex: start, endIndex: end, topSpacer: top, bottomSpacer: bottom };
+  }, [scrollTop, visiblePages.length, containerHeight, THUMB_HEIGHT, BUFFER]);
 
   return (
     <div className="page-sidebar">
@@ -213,7 +215,12 @@ function PageThumbnail({ pdfDoc, pageNum, isActive, onClick, rotation, onRotate,
       ref={containerRef}
       className={`page-thumbnail ${isActive ? 'active' : ''}`}
       onClick={onClick}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault(); // Prevent scroll on Space
+          onClick();
+        }
+      }}
       role="button"
       tabIndex={0}
       title={`Page ${pageNum}`}

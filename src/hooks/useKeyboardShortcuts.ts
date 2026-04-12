@@ -91,7 +91,9 @@ export function useKeyboardShortcuts(actions: KeyboardShortcutActions): void {
         const activeObjects = canvas.getActiveObjects();
         if (activeObjects.length > 0) {
           canvas.discardActiveObject();
-          activeObjects.forEach((obj: unknown) => canvas.remove(obj));
+          for (const obj of activeObjects) {
+            if (obj != null) canvas.remove(obj);
+          }
         } else {
           canvas.remove(active);
         }

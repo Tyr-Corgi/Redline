@@ -17,7 +17,7 @@ function yieldToMain(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
-async function validatePdfBytes(buffer: ArrayBuffer): Promise<boolean> {
+export async function validatePdfBytes(buffer: ArrayBuffer): Promise<boolean> {
   // Check minimum size (header + some content)
   if (buffer.byteLength < 100) return false;
 
@@ -30,9 +30,10 @@ async function validatePdfBytes(buffer: ArrayBuffer): Promise<boolean> {
   const tail = new TextDecoder().decode(buffer.slice(buffer.byteLength - tailSize));
   if (!tail.includes('%%EOF')) return false;
 
-  // Check for cross-reference table marker
-  const content = new TextDecoder().decode(buffer);
-  if (!content.includes('xref') && !content.includes('startxref')) return false;
+  // Check for cross-reference pointer in last 64KB (where it must be in valid PDFs)
+  const xrefSearchSize = Math.min(65536, buffer.byteLength);
+  const xrefTail = new TextDecoder().decode(buffer.slice(buffer.byteLength - xrefSearchSize));
+  if (!xrefTail.includes('startxref')) return false;
 
   return true;
 }

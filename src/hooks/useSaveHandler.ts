@@ -50,8 +50,8 @@ export function useSaveHandler(params: SaveHandlerParams): () => Promise<void> {
 
       let pageCount = 0;
       for (const [pageNum, entry] of allAnnotations.entries()) {
-        // Yield every 5 pages to prevent UI freeze
-        if (pageCount > 0 && pageCount % 5 === 0) {
+        // Yield every page to prevent UI freeze
+        if (pageCount > 0) {
           await new Promise(resolve => setTimeout(resolve, 0));
         }
         pageCount++;

@@ -17,6 +17,8 @@ import {
 const SignatureModal = lazy(() => import('./SignatureModal').then(m => ({ default: m.SignatureModal })));
 
 // Lazy load Fabric.js module
+// Lazy singleton: import('fabric') is code-split by Vite into a separate chunk.
+// The singleton only caches the promise to avoid duplicate network requests.
 let fabricModule: typeof import('fabric') | null = null;
 async function getFabric() {
   if (!fabricModule) {
@@ -27,6 +29,175 @@ async function getFabric() {
 
 // Constants
 const IMAGE_DEFAULT_WIDTH = 200;
+
+/**
+ * Setup tool-specific event handlers and configurations on the Fabric canvas.
+ * Extracted from useEffect to reduce component line count.
+ * @returns Cleanup function for drag tools, or null
+ */
+async function setupToolHandlers(
+  canvas: FabricCanvas,
+  activeTool: Tool,
+  toolConfig: ToolConfig,
+  prevActiveToolRef: React.MutableRefObject<Tool>,
+  setSignatureOpen: (open: boolean) => void,
+  imageInputRef: React.RefObject<HTMLInputElement | null>,
+  dragRafRef: React.MutableRefObject<number | null>
+): Promise<(() => void) | null> {
+  const fabric = await getFabric();
+  let dragToolCleanup: (() => void) | null = null;
+
+  switch (activeTool) {
+    case 'select':
+      break;
+
+    case 'text':
+      canvas.on('mouse:down', (opt) => {
+        if (opt.target) return;
+        const pt = canvas.getScenePoint(opt.e);
+        const text = new fabric.IText('Type here', {
+          left: pt.x,
+          top: pt.y,
+          originX: 'left',
+          originY: 'bottom',
+          fontSize: toolConfig.fontSize,
+          fontFamily: toolConfig.fontFamily,
+          fontWeight: toolConfig.bold ? 'bold' : 'normal',
+          fontStyle: toolConfig.italic ? 'italic' : 'normal',
+          underline: toolConfig.underline,
+          fill: toolConfig.color,
+          stroke: toolConfig.color,
+          strokeWidth: 0.5,
+          paintFirst: 'stroke',
+          selectable: true,
+          editable: true,
+        });
+        canvas.add(text);
+        canvas.setActiveObject(text);
+        // Defer editing entry past Fabric's full mouse event cycle (mouse:down → mouse:up).
+        // A single requestAnimationFrame isn't enough because Fabric's mouse:up fires
+        // after the first frame and can steal focus. Using setTimeout(0) ensures we run
+        // after Fabric's entire event pipeline completes.
+        setTimeout(() => {
+          text.enterEditing();
+          text.selectAll();
+          // Ensure the hidden textarea has focus for keyboard capture (Issue 1)
+          const hiddenInput = (text as FabricITextWithTextarea).hiddenTextarea;
+          hiddenInput?.focus();
+        }, 0);
+      });
+      break;
+
+    case 'draw': {
+      canvas.isDrawingMode = true;
+      const brush = new fabric.PencilBrush(canvas);
+      brush.width = toolConfig.lineWidth;
+      brush.color = toolConfig.color;
+      canvas.freeDrawingBrush = brush;
+      break;
+    }
+
+    case 'highlight':
+      dragToolCleanup = setupDragRect({
+        canvas,
+        color: toolConfig.color || '#FFFF00',
+        opacity: toolConfig.opacity,
+        strokeWidth: toolConfig.lineWidth,
+        rafRef: dragRafRef,
+      });
+      break;
+
+    case 'redact':
+      dragToolCleanup = setupDragRect({
+        canvas,
+        color: '#000000',
+        opacity: 1.0,
+        strokeWidth: toolConfig.lineWidth,
+        rafRef: dragRafRef,
+      });
+      break;
+
+    case 'arrow':
+      dragToolCleanup = setupDragArrow({
+        canvas,
+        color: toolConfig.color,
+        opacity: toolConfig.opacity,
+        strokeWidth: toolConfig.lineWidth,
+        rafRef: dragRafRef,
+      });
+      break;
+
+    case 'circle':
+      dragToolCleanup = setupDragCircle({
+        canvas,
+        color: toolConfig.color,
+        opacity: toolConfig.opacity,
+        strokeWidth: toolConfig.lineWidth,
+        rafRef: dragRafRef,
+      });
+      break;
+
+    case 'stamp':
+      dragToolCleanup = setupStampTool({
+        canvas,
+        stampType: toolConfig.stampType,
+      });
+      break;
+
+    case 'checkbox':
+      dragToolCleanup = setupCheckboxTool({
+        canvas,
+        checkboxStyle: toolConfig.checkboxStyle,
+      });
+      break;
+
+    case 'date':
+      dragToolCleanup = setupDateTool({
+        canvas,
+        fontSize: toolConfig.fontSize,
+        fontFamily: toolConfig.fontFamily,
+        color: toolConfig.color,
+      });
+      break;
+
+    case 'shape':
+      dragToolCleanup = setupDragShape({
+        canvas,
+        color: toolConfig.color,
+        opacity: toolConfig.opacity,
+        strokeWidth: toolConfig.lineWidth,
+        rafRef: dragRafRef,
+      });
+      break;
+
+    case 'eraser':
+      canvas.on('mouse:down', (opt) => {
+        if (opt.target) {
+          canvas.remove(opt.target);
+          canvas.renderAll();
+        }
+      });
+      break;
+
+    case 'signature':
+      // Only open modal when user explicitly switches to this tool, not on remount
+      if (prevActiveToolRef.current !== 'signature') {
+        setSignatureOpen(true);
+      }
+      break;
+
+    case 'image':
+      // Only trigger file picker when user explicitly switches to this tool,
+      // not when PageCanvas remounts due to page navigation
+      if (prevActiveToolRef.current !== 'image') {
+        imageInputRef.current?.click();
+      }
+      break;
+  }
+
+  prevActiveToolRef.current = activeTool;
+  return dragToolCleanup;
+}
 
 /**
  * Annotation Data Flow Architecture:
@@ -247,160 +418,17 @@ export function PageCanvas({
     // Track cleanup function for drag tools
     let dragToolCleanup: (() => void) | null = null;
 
-    const setupTools = async () => {
-      const fabric = await getFabric();
-
-      switch (activeTool) {
-        case 'select':
-          break;
-
-        case 'text':
-          canvas.on('mouse:down', (opt) => {
-            if (opt.target) return;
-            const pt = canvas.getScenePoint(opt.e);
-            const text = new fabric.IText('Type here', {
-              left: pt.x,
-              top: pt.y,
-              originX: 'left',
-              originY: 'bottom',
-              fontSize: toolConfig.fontSize,
-              fontFamily: toolConfig.fontFamily,
-              fontWeight: toolConfig.bold ? 'bold' : 'normal',
-              fontStyle: toolConfig.italic ? 'italic' : 'normal',
-              underline: toolConfig.underline,
-              fill: toolConfig.color,
-              stroke: toolConfig.color,
-              strokeWidth: 0.5,
-              paintFirst: 'stroke',
-              selectable: true,
-              editable: true,
-            });
-            canvas.add(text);
-            canvas.setActiveObject(text);
-            // Defer editing entry past Fabric's full mouse event cycle (mouse:down → mouse:up).
-            // A single requestAnimationFrame isn't enough because Fabric's mouse:up fires
-            // after the first frame and can steal focus. Using setTimeout(0) ensures we run
-            // after Fabric's entire event pipeline completes.
-            setTimeout(() => {
-              text.enterEditing();
-              text.selectAll();
-              // Ensure the hidden textarea has focus for keyboard capture (Issue 1)
-              const hiddenInput = (text as FabricITextWithTextarea).hiddenTextarea;
-              hiddenInput?.focus();
-            }, 0);
-          });
-          break;
-
-        case 'draw': {
-          canvas.isDrawingMode = true;
-          const brush = new fabric.PencilBrush(canvas);
-          brush.width = toolConfig.lineWidth;
-          brush.color = toolConfig.color;
-          canvas.freeDrawingBrush = brush;
-          break;
-        }
-
-        case 'highlight':
-          dragToolCleanup = setupDragRect({
-            canvas,
-            color: toolConfig.color || '#FFFF00',
-            opacity: toolConfig.opacity,
-            strokeWidth: toolConfig.lineWidth,
-            rafRef: dragRafRef,
-          });
-          break;
-
-        case 'redact':
-          dragToolCleanup = setupDragRect({
-            canvas,
-            color: '#000000',
-            opacity: 1.0,
-            strokeWidth: toolConfig.lineWidth,
-            rafRef: dragRafRef,
-          });
-          break;
-
-        case 'arrow':
-          dragToolCleanup = setupDragArrow({
-            canvas,
-            color: toolConfig.color,
-            opacity: toolConfig.opacity,
-            strokeWidth: toolConfig.lineWidth,
-            rafRef: dragRafRef,
-          });
-          break;
-
-        case 'circle':
-          dragToolCleanup = setupDragCircle({
-            canvas,
-            color: toolConfig.color,
-            opacity: toolConfig.opacity,
-            strokeWidth: toolConfig.lineWidth,
-            rafRef: dragRafRef,
-          });
-          break;
-
-        case 'stamp':
-          dragToolCleanup = setupStampTool({
-            canvas,
-            stampType: toolConfig.stampType,
-          });
-          break;
-
-        case 'checkbox':
-          dragToolCleanup = setupCheckboxTool({
-            canvas,
-            checkboxStyle: toolConfig.checkboxStyle,
-          });
-          break;
-
-        case 'date':
-          dragToolCleanup = setupDateTool({
-            canvas,
-            fontSize: toolConfig.fontSize,
-            fontFamily: toolConfig.fontFamily,
-            color: toolConfig.color,
-          });
-          break;
-
-        case 'shape':
-          dragToolCleanup = setupDragShape({
-            canvas,
-            color: toolConfig.color,
-            opacity: toolConfig.opacity,
-            strokeWidth: toolConfig.lineWidth,
-            rafRef: dragRafRef,
-          });
-          break;
-
-        case 'eraser':
-          canvas.on('mouse:down', (opt) => {
-            if (opt.target) {
-              canvas.remove(opt.target);
-              canvas.renderAll();
-            }
-          });
-          break;
-
-        case 'signature':
-          // Only open modal when user explicitly switches to this tool, not on remount
-          if (prevActiveToolRef.current !== 'signature') {
-            setSignatureOpen(true);
-          }
-          break;
-
-        case 'image':
-          // Only trigger file picker when user explicitly switches to this tool,
-          // not when PageCanvas remounts due to page navigation
-          if (prevActiveToolRef.current !== 'image') {
-            imageInputRef.current?.click();
-          }
-          break;
-      }
-      prevActiveToolRef.current = activeTool;
-    };
-
-    setupTools();
+    setupToolHandlers(
+      canvas,
+      activeTool,
+      toolConfig,
+      prevActiveToolRef,
+      setSignatureOpen,
+      imageInputRef,
+      dragRafRef
+    ).then(cleanup => {
+      dragToolCleanup = cleanup;
+    });
 
     return () => {
       // Cancel any in-flight drag RAF on cleanup (tool change or unmount)
@@ -495,8 +523,8 @@ export function PageCanvas({
       />
       <div
         ref={fabricWrapperRef}
-        role="img"
-        aria-label={`Annotation layer, page ${pageNum}`}
+        role="application"
+        aria-label={`Annotation canvas for page ${pageNum}, interactive drawing surface`}
         aria-roledescription="annotation canvas"
         tabIndex={0}
         style={{ position: 'absolute', top: 0, left: 0, zIndex: 2, width: pageSize?.width, height: pageSize?.height }}

@@ -83,50 +83,30 @@ export default function App() {
   const pdfBytesRef = useRef<ArrayBuffer | null>(null);
   const autoSaverRef = useRef(createDebouncedSaver(AUTO_SAVE_DEBOUNCE_MS));
 
-  /**
-   * Ref-based state synchronization architecture:
-   *
-   * WHY REFS ARE NEEDED:
-   * Fabric.js canvas event callbacks (object:modified, path:created, etc.) and touch event handlers
-   * capture closures at registration time. When these callbacks execute, they have stale references
-   * to React state. Refs provide a mutable container that always points to the latest state, bridging
-   * the gap between React's declarative state model and Fabric's imperative event system.
-   *
-   * CONSOLIDATED EDITOR STATE:
-   * - latestEditorRef: Consolidates file, currentPage, and zoom state for callbacks that need current editor context
-   *   (used in triggerAutoSave and other imperative operations that fire from non-React event sources)
-   * - latestZoomRef: Separate zoom ref required by useTouchZoom hook (expects RefObject<number>)
-   *
-   * OTHER STATE REFS:
-   * - isRestoringHistoryRef: Guards against circular loops during undo/redo history restoration
-   * - pageAnnotationsRef: Per-page annotation storage with zoom metadata for proper scaling during restore
-   *
-   * All refs are kept in sync with state via assignment in component body (runs on every render).
-   * The refs are only accessed where event closures would otherwise capture stale state.
-   */
+  // Refs bridge React state with Fabric.js imperative callbacks (closures capture stale state otherwise)
   const latestEditorRef = useRef({ file, currentPage, zoom });
   const latestZoomRef = useRef(zoom);
   const isRestoringHistoryRef = useRef(false);
   const pageAnnotationsRef = useRef<Map<number, { json: string; zoom: number }>>(new Map());
   const documentAreaRef = useRef<HTMLDivElement>(null);
 
-  // Keep refs in sync with state (runs every render)
+  // Sync refs with state on every render
   latestEditorRef.current = { file, currentPage, zoom };
   latestZoomRef.current = zoom;
 
-  // Toast auto-dismiss
+  // Auto-dismiss toast after 5s
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 5000);
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Dynamic document title
+  // Update title with filename
   useEffect(() => {
     document.title = file ? `${file.name} — Redline` : 'Redline';
   }, [file]);
 
-  // Issue 4: Non-blocking session restore - render drop zone immediately
+  // Non-blocking session restore
   useEffect(() => {
     setRestoringSession(false);
     (async () => {
@@ -147,7 +127,7 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Issue 3: Memoize handleFileSelect
+  // Memoized file selection handler
   const handleFileSelect = useCallback(
     async (selectedFile: File) => {
       if (selectedFile?.type === 'application/pdf') {
@@ -166,7 +146,7 @@ export default function App() {
     [openFile]
   );
 
-  // Issue 3: Memoize handleMergedOpen
+  // Memoized merge handler
   const handleMergedOpen = useCallback(
     async (bytes: ArrayBuffer, fileName: string) => {
       autoSaverRef.current.cancel();
@@ -177,7 +157,7 @@ export default function App() {
     [openFromBytes]
   );
 
-  // Issue 3: Memoize handleNewProject
+  // Memoized new project handler
   const handleNewProject = useCallback(async () => {
     if (file) {
       setConfirmAction({
@@ -199,7 +179,7 @@ export default function App() {
     await clearSession();
   }, [file, clearFile]);
 
-  // Issue 3: Memoize handleToolConfigChange
+  // Memoized tool config handler
   const handleToolConfigChange = useCallback(
     (config: Parameters<typeof setToolConfig>[0]) => {
       setToolConfig(config);
@@ -224,7 +204,7 @@ export default function App() {
     [setToolConfig]
   );
 
-  // Issue 3: Memoize triggerAutoSave
+  // Memoized auto-save trigger
   const triggerAutoSave = useCallback(() => {
     const { file: currentFile, currentPage: page, zoom: currentZoom } = latestEditorRef.current;
     if (!pdfBytesRef.current || !currentFile) return;
@@ -252,8 +232,7 @@ export default function App() {
     setTimeout(() => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)), SAVE_STATUS_RESET_MS);
   }, [getAllPageAnnotations]);
 
-  // Track page changes for auto-save (PageCanvas cleanup handles saving
-  // annotations via onAnnotationsChange, so we just trigger the auto-save).
+  // Track page changes for auto-save
   const prevPageRef = useRef<number>(currentPage);
   useEffect(() => {
     if (prevPageRef.current !== currentPage) {
@@ -265,7 +244,7 @@ export default function App() {
     }
   }, [currentPage, triggerAutoSave, numPages]);
 
-  // Restore canvas state on undo/redo
+  // Undo/redo restoration
   const lastHistoryIndexRef = useRef<number>(-1);
   useEffect(() => {
     if (historyIndex === lastHistoryIndexRef.current) return;
@@ -275,11 +254,10 @@ export default function App() {
     const entry = history[historyIndex];
     if (!entry || entry.page !== currentPage || !fabricCanvasRef.current) return;
 
-    // Issue 2: Set guard to prevent circular loops during history restoration
+    // Guard to prevent circular loops during history restoration
     isRestoringHistoryRef.current = true;
 
-    // Restore canvas from history snapshot (suppress modification events and
-    // disable interaction while loading to prevent race conditions)
+    // Suppress modification events during restore
     const canvas = fabricCanvasRef.current;
     canvas.off('object:modified');
     canvas.off('object:added');
@@ -288,19 +266,17 @@ export default function App() {
     canvas.selection = false;
     canvas.discardActiveObject();
 
-    // History snapshots are stored at the zoom they were taken at.
-    // The snapshot JSON is raw at the current zoom since onModified fires
-    // with the live canvas. Just restore directly.
+    // Restore canvas JSON directly (snapshot stored at current zoom)
     canvas.loadFromJSON(entry.snapshot).then(() => {
       canvas.renderAll();
       canvas.selection = true;
       savePageAnnotations(currentPage, entry.snapshot, zoom);
-      // Clear restoration guard after async restore completes
+      // Clear guard after restore
       isRestoringHistoryRef.current = false;
     });
   }, [historyIndex, history, currentPage, zoom, savePageAnnotations]);
 
-  // Extract save handler to useSaveHandler hook
+  // Save handler (extracted to hook)
   const handleSave = useSaveHandler({
     file,
     pdfDoc,
@@ -316,7 +292,7 @@ export default function App() {
     onToast: (msg, type = 'info') => setToast({ message: msg, type }),
   });
 
-  // Issue 1: Extract print handler to usePrintHandler hook
+  // Print handler (extracted to hook)
   const handlePrint = usePrintHandler({
     pdfDoc,
     pdfBytesRef,
@@ -333,7 +309,7 @@ export default function App() {
     getAllPageAnnotations,
   });
 
-  // Warn before closing tab with unsaved work & flush auto-save
+  // Flush auto-save before tab close
   useEffect(() => {
     if (!file) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -344,7 +320,7 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [file]);
 
-  // Hooks
+  // Keyboard & touch hooks
   useKeyboardShortcuts({
     onUndo: undo,
     onRedo: redo,
@@ -361,7 +337,7 @@ export default function App() {
 
   useTouchZoom({ zoom, setZoom, latestZoomRef }, documentAreaRef);
 
-  // Drag and drop handlers
+  // Drag & drop
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -391,7 +367,7 @@ export default function App() {
     [zoom, setZoom]
   );
 
-  // Critical 2: Clean up page annotations when page is deleted
+  // Clean up annotations on page deletion
   const handleDeletePage = useCallback(
     (pageNum: number) => {
       deletePage(pageNum);
@@ -405,7 +381,7 @@ export default function App() {
       <a href="#document-area" className="skip-link">
         Skip to document
       </a>
-      {/* Issue 5: Add error boundary for Toolbar */}
+      {/* Error boundary for Toolbar */}
       <ErrorBoundary>
         <Toolbar
           activeTool={activeTool}
@@ -430,7 +406,7 @@ export default function App() {
         />
       </ErrorBoundary>
 
-      {/* Issue 5: Add error boundary for lazy-loaded modal */}
+      {/* Error boundary for modal */}
       {showMergeModal && (
         <ErrorBoundary>
           <Suspense fallback={null}>
@@ -445,7 +421,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Issue 4: Show subtle loading indicator during session restore */}
+      {/* Session restore indicator */}
       {restoringSession && (
         <div
           style={{
@@ -496,7 +472,7 @@ export default function App() {
               onMerge={() => setShowMergeModal(true)}
             />
           ) : (
-            /* Issue 5: Add error boundary for PageCanvas */
+            /* Error boundary for canvas */
             <ErrorBoundary>
               <PageCanvas
                 key={currentPage}
@@ -537,7 +513,7 @@ export default function App() {
         />
       )}
 
-      {/* Critical 4: Accessibility status announcements for screen readers */}
+      {/* SR status announcements */}
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {statusAnnouncement}
       </div>

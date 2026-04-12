@@ -19,6 +19,7 @@ interface PrintHandlerParams {
 }
 
 const PRINT_DPI_SCALE = 2;
+const BATCH_SIZE = 5;
 
 export function usePrintHandler(params: PrintHandlerParams): () => Promise<void> {
   const {
@@ -80,80 +81,97 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
     try {
       const { Canvas: TempFabric } = await import('fabric');
 
+      // Process pages in batches to limit memory usage
+      const pageNumbers = [];
       for (let p = 1; p <= pdfDoc.numPages; p++) {
-        if (deletedPages.includes(p)) continue;
-        const rot = pageRotations[p] || 0;
-        const page = await pdfDoc.getPage(p);
-        // Render at scale 1.0 for base dimensions
-        const baseViewport = page.getViewport({ scale: 1.0, rotation: rot });
-        // Use PRINT_DPI_SCALE for print quality
-        const printViewport = page.getViewport({ scale: PRINT_DPI_SCALE, rotation: rot });
+        if (!deletedPages.includes(p)) {
+          pageNumbers.push(p);
+        }
+      }
 
-        // Render PDF page at print quality
-        const pdfCanvas = document.createElement('canvas');
-        pdfCanvas.width = printViewport.width;
-        pdfCanvas.height = printViewport.height;
-        const ctx = pdfCanvas.getContext('2d')!;
-        await page.render({
-          canvasContext: ctx,
-          viewport: printViewport,
-          canvas: pdfCanvas,
-        } as unknown as Parameters<typeof page.render>[0]).promise;
+      for (let batchStart = 0; batchStart < pageNumbers.length; batchStart += BATCH_SIZE) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, pageNumbers.length);
+        const batch = pageNumbers.slice(batchStart, batchEnd);
 
-        // Use CSS size matching base viewport for consistent page sizing
-        const cssW = baseViewport.width;
-        const cssH = baseViewport.height;
+        for (const p of batch) {
+          const rot = pageRotations[p] || 0;
+          const page = await pdfDoc.getPage(p);
+          // Render at scale 1.0 for base dimensions
+          const baseViewport = page.getViewport({ scale: 1.0, rotation: rot });
+          // Use PRINT_DPI_SCALE for print quality
+          const printViewport = page.getViewport({ scale: PRINT_DPI_SCALE, rotation: rot });
 
-        const printPageDiv = doc.createElement('div');
-        printPageDiv.className = 'print-page';
-        printPageDiv.style.cssText = `width:${cssW}px;height:${cssH}px;`;
+          // Render PDF page at print quality
+          const pdfCanvas = document.createElement('canvas');
+          pdfCanvas.width = printViewport.width;
+          pdfCanvas.height = printViewport.height;
+          const ctx = pdfCanvas.getContext('2d')!;
+          await page.render({
+            canvasContext: ctx,
+            viewport: printViewport,
+            canvas: pdfCanvas,
+          } as unknown as Parameters<typeof page.render>[0]).promise;
 
-        const pdfDataUrl = pdfCanvas.toDataURL('image/png');
-        const pdfImg = doc.createElement('img');
-        pdfImg.src = pdfDataUrl;
-        pdfImg.style.cssText = `width:${cssW}px;height:${cssH}px;`;
-        printPageDiv.appendChild(pdfImg);
+          // Use CSS size matching base viewport for consistent page sizing
+          const cssW = baseViewport.width;
+          const cssH = baseViewport.height;
 
-        // Render annotation overlay at stored zoom dimensions (no JSON transform)
-        const annotEntry = allAnnotations.get(p);
-        if (annotEntry) {
-          let tc: InstanceType<typeof TempFabric> | null = null;
-          try {
-            const parsed = JSON.parse(annotEntry.json);
-            if (parsed.objects && parsed.objects.length > 0) {
-              // Render at stored zoom dimensions — matches raw JSON coords
-              const storedViewport = page.getViewport({ scale: annotEntry.zoom, rotation: rot });
-              const tempCanvas = doc.createElement('canvas');
-              tc = new TempFabric(tempCanvas, {
-                width: storedViewport.width,
-                height: storedViewport.height,
-              });
-              // Load raw JSON as-is
-              await tc.loadFromJSON(annotEntry.json);
-              tc.renderAll();
-              const overlayUrl = tc.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
-              // CSS stretches the overlay image to match the base viewport
-              const overlayImg = doc.createElement('img');
-              overlayImg.className = 'overlay-img';
-              overlayImg.src = overlayUrl;
-              overlayImg.style.cssText = `width:${cssW}px;height:${cssH}px;`;
-              printPageDiv.appendChild(overlayImg);
-            }
-          } catch (error) {
-            console.warn('[Redline]', error);
-          } finally {
-            if (tc) {
-              tc.dispose();
-              // Clean up DOM element
-              const canvasEl = tc.getElement();
-              if (canvasEl?.parentNode) {
-                canvasEl.parentNode.removeChild(canvasEl);
+          const printPageDiv = doc.createElement('div');
+          printPageDiv.className = 'print-page';
+          printPageDiv.style.cssText = `width:${cssW}px;height:${cssH}px;`;
+
+          const pdfDataUrl = pdfCanvas.toDataURL('image/png');
+          const pdfImg = doc.createElement('img');
+          pdfImg.src = pdfDataUrl;
+          pdfImg.style.cssText = `width:${cssW}px;height:${cssH}px;`;
+          printPageDiv.appendChild(pdfImg);
+
+          // Render annotation overlay at stored zoom dimensions (no JSON transform)
+          const annotEntry = allAnnotations.get(p);
+          if (annotEntry) {
+            let tc: InstanceType<typeof TempFabric> | null = null;
+            try {
+              const parsed = JSON.parse(annotEntry.json);
+              if (parsed.objects && parsed.objects.length > 0) {
+                // Render at stored zoom dimensions — matches raw JSON coords
+                const storedViewport = page.getViewport({ scale: annotEntry.zoom, rotation: rot });
+                const tempCanvas = doc.createElement('canvas');
+                tc = new TempFabric(tempCanvas, {
+                  width: storedViewport.width,
+                  height: storedViewport.height,
+                });
+                // Load raw JSON as-is
+                await tc.loadFromJSON(annotEntry.json);
+                tc.renderAll();
+                const overlayUrl = tc.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
+                // CSS stretches the overlay image to match the base viewport
+                const overlayImg = doc.createElement('img');
+                overlayImg.className = 'overlay-img';
+                overlayImg.src = overlayUrl;
+                overlayImg.style.cssText = `width:${cssW}px;height:${cssH}px;`;
+                printPageDiv.appendChild(overlayImg);
               }
-              tc = null;
+            } catch (error) {
+              console.warn('[Redline]', error);
+            } finally {
+              if (tc) {
+                tc.dispose();
+                // Clean up DOM element
+                const canvasEl = tc.getElement();
+                if (canvasEl?.parentNode) {
+                  canvasEl.parentNode.removeChild(canvasEl);
+                }
+                tc = null;
+              }
             }
           }
+          body.appendChild(printPageDiv);
         }
-        body.appendChild(printPageDiv);
+
+        // Yield to main thread between batches
+        if (batchEnd < pageNumbers.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
       }
 
       html.appendChild(body);

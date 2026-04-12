@@ -1,3 +1,9 @@
+/**
+ * PDF Editor domain hook — manages document lifecycle, page navigation,
+ * annotation storage (ref-based for Fabric.js imperative API), and undo/redo history.
+ * Architecture note: Business logic bridges React state with Fabric.js imperative canvas.
+ * Annotations stored in refs to avoid stale closures in Fabric.js callbacks.
+ */
 import { useReducer, useCallback, useRef } from 'react';
 import type { EditorState, EditorAction, Tool, ToolConfig } from '../types';
 import { loadPdf, loadPdfFromBytes } from '../services/pdfService';

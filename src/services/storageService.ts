@@ -119,15 +119,30 @@ function validateSession(data: unknown): data is SavedSession {
 }
 
 /**
+ * Cache for PDF hash computation to avoid re-hashing on every auto-save.
+ * Keyed by ArrayBuffer reference for O(1) lookup.
+ */
+let cachedPdfHash: { buffer: ArrayBuffer; hash: string } | null = null;
+
+/**
  * Compute a fast fingerprint of PDF bytes to detect changes.
  * Uses byte length + first/last 16 bytes for efficiency.
+ * Caches result based on ArrayBuffer reference to prevent re-hashing on every auto-save.
  */
 function computePdfHash(pdfBytes: ArrayBuffer): string {
+  // Return cached hash if same buffer reference
+  if (cachedPdfHash && cachedPdfHash.buffer === pdfBytes) {
+    return cachedPdfHash.hash;
+  }
+
   const len = pdfBytes.byteLength;
   const view = new Uint8Array(pdfBytes);
   const head = Array.from(view.slice(0, Math.min(16, len)));
   const tail = Array.from(view.slice(Math.max(0, len - 16)));
-  return `${len}-${head.join(',')}-${tail.join(',')}`;
+  const hash = `${len}-${head.join(',')}-${tail.join(',')}`;
+
+  cachedPdfHash = { buffer: pdfBytes, hash };
+  return hash;
 }
 
 export async function saveSession(session: SavedSession): Promise<void> {
