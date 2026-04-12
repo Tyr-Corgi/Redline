@@ -2,19 +2,6 @@ import type { Canvas as FabricCanvas } from 'fabric';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 /**
- * Deep freeze an object to prevent modification and prototype pollution
- */
-function deepFreeze<T extends object>(obj: T): T {
-  Object.freeze(obj);
-  for (const value of Object.values(obj)) {
-    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
-      deepFreeze(value);
-    }
-  }
-  return obj;
-}
-
-/**
  * Render PDF page to canvas with DPI awareness
  */
 export async function renderPdfPage(
@@ -103,10 +90,11 @@ export async function initializeFabricCanvas(
   if (savedAnnotations) {
     try {
       const zoomRatio = savedAnnotations.zoom > 0 ? currentZoom / savedAnnotations.zoom : 1;
-      // Parse and deep-freeze annotation data to prevent prototype pollution
+      // JSON.parse produces a fresh object tree — no prototype pollution risk
+      // from our own serialized annotation data. Do NOT freeze: Fabric.js
+      // mutates objects during loadFromJSON deserialization.
       const parsedAnnotations = JSON.parse(savedAnnotations.json);
-      const frozenAnnotations = deepFreeze(parsedAnnotations);
-      await fc.loadFromJSON(frozenAnnotations);
+      await fc.loadFromJSON(parsedAnnotations);
       if (Math.abs(zoomRatio - 1) > 0.001) {
         fc.forEachObject((obj) => {
           obj.set({

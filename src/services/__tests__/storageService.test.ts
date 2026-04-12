@@ -3,10 +3,9 @@ import { validateAnnotationJson } from '../storageService';
 
 describe('storageService', () => {
   describe('validateAnnotationJson', () => {
-    // Defense-in-depth architecture (3 layers):
+    // Defense-in-depth architecture (2 layers):
     // 1. JSON.parse reviver strips __proto__, constructor, prototype during parsing
     // 2. hasOwnProperty check rejects any dangerous keys that survive parsing
-    // 3. deepFreeze (in canvasUtils) prevents mutation during Fabric.js deserialization
 
     it('should accept empty string as valid', () => {
       expect(validateAnnotationJson('')).toBe(true);
