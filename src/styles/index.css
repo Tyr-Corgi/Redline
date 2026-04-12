@@ -644,6 +644,7 @@ select:focus-visible {
   background: radial-gradient(circle at 50% 0%, var(--accent-glow), transparent 70%);
   opacity: 0;
   transition: opacity var(--transition-medium);
+  pointer-events: none;
 }
 
 .drop-zone.drag-over .drop-zone-content {
