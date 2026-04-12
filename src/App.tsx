@@ -95,7 +95,6 @@ export default function App() {
     const t = setTimeout(() => setToast(null), 5000);
     return () => clearTimeout(t);
   }, [toast]);
-
   useEffect(() => {
     document.title = file ? `${file.name} — Redline` : 'Redline';
   }, [file]);
@@ -357,6 +356,21 @@ export default function App() {
     pageAnnotationsRef.current.delete(pageNum);
   }, [deletePage]);
 
+  const handleCanvasModified = useCallback(() => {
+    if (isRestoringHistoryRef.current) return;
+    canvasDirtyRef.current = true;
+    markPageDirty(currentPage);
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    historyTimerRef.current = setTimeout(() => {
+      if (fabricCanvasRef.current && canvasDirtyRef.current) {
+        const rawSnapshot = JSON.stringify(fabricCanvasRef.current.toJSON());
+        pushHistory(currentPage, rawSnapshot);
+        canvasDirtyRef.current = false;
+      }
+      historyTimerRef.current = null;
+    }, 300);
+  }, [currentPage, pushHistory]);
+
   return (
     <div className="app">
       <a href="#document-area" className="skip-link">
@@ -392,7 +406,6 @@ export default function App() {
           </Suspense>
         </ErrorBoundary>
       )}
-
       {saveStatus !== 'idle' && (
         <div className={`save-indicator ${saveStatus}`} role="status" aria-live="polite">
           {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
@@ -416,7 +429,6 @@ export default function App() {
           Restoring session...
         </div>
       )}
-
       <div className="editor-body">
         {pdfDoc && (
           <ErrorBoundary>
@@ -462,20 +474,7 @@ export default function App() {
                 onCanvasReady={(fc) => {
                   fabricCanvasRef.current = fc as FabricCanvasWithOverlay;
                 }}
-                onModified={() => {
-                  if (isRestoringHistoryRef.current) return;
-                  canvasDirtyRef.current = true;
-                  markPageDirty(currentPage);
-                  if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
-                  historyTimerRef.current = setTimeout(() => {
-                    if (fabricCanvasRef.current && canvasDirtyRef.current) {
-                      const rawSnapshot = JSON.stringify(fabricCanvasRef.current.toJSON());
-                      pushHistory(currentPage, rawSnapshot);
-                      canvasDirtyRef.current = false;
-                    }
-                    historyTimerRef.current = null;
-                  }, 300);
-                }}
+                onModified={handleCanvasModified}
                 onAnnotationsChange={(page, json, annotZoom) => {
                   savePageAnnotations(page, json, annotZoom);
                   triggerAutoSave();
@@ -486,7 +485,6 @@ export default function App() {
           )}
         </div>
       </div>
-
       {toast && <ToastNotification message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />}
       {confirmAction && (
         <ConfirmDialog
@@ -495,7 +493,6 @@ export default function App() {
           onCancel={() => setConfirmAction(null)}
         />
       )}
-
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {statusAnnouncement}
       </div>

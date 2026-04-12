@@ -78,6 +78,7 @@ export function PageCanvas({
   const fabricRef = useRef<FabricCanvas | null>(null);
   const fabricWrapperRef = useRef<HTMLDivElement>(null);
   const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null);
+  const [basePageSize, setBasePageSize] = useState<{ width: number; height: number } | null>(null);
   const [signatureOpen, setSignatureOpen] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const savedZoomRef = useRef<number>(zoom);
@@ -116,7 +117,12 @@ export function PageCanvas({
       () => isMountedRef.current
     );
     if (result) {
-      setPageSize(result);
+      setPageSize({ width: result.width, height: result.height });
+      // Only update base size if it actually changed (avoids Fabric recreation)
+      const newBase = { width: result.baseWidth, height: result.baseHeight };
+      setBasePageSize(prev =>
+        prev && prev.width === newBase.width && prev.height === newBase.height ? prev : newBase
+      );
     }
   }, [pdfDoc, pageNum, zoom, rotation]);
 
@@ -132,9 +138,9 @@ export function PageCanvas({
     };
   }, [renderPdf]);
 
-  // Create / recreate fabric canvas when page size changes
+  // Create / recreate fabric canvas when base page size changes (page switch or rotation)
   useEffect(() => {
-    if (!pageSize || !fabricWrapperRef.current) return;
+    if (!basePageSize || !pageSize || !fabricWrapperRef.current) return;
 
     // Dispose old canvas
     if (fabricRef.current) {
@@ -216,6 +222,16 @@ export function PageCanvas({
       wrapper.replaceChildren();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [basePageSize]);
+
+  // Resize Fabric canvas when zoom changes (without recreation)
+  useEffect(() => {
+    if (!fabricRef.current || !pageSize) return;
+    fabricRef.current.setDimensions({
+      width: pageSize.width,
+      height: pageSize.height,
+    });
+    fabricRef.current.renderAll();
   }, [pageSize]);
 
   // Configure tool behavior on tool/config change

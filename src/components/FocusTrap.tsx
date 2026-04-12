@@ -26,12 +26,12 @@ export function FocusTrap({ children, active = true }: FocusTrapProps) {
       const last = elements[elements.length - 1];
 
       if (e.shiftKey) {
-        if (document.activeElement === first) {
+        if (document.activeElement === first && last) {
           e.preventDefault();
           last.focus();
         }
       } else {
-        if (document.activeElement === last) {
+        if (document.activeElement === last && first) {
           e.preventDefault();
           first.focus();
         }
@@ -39,7 +39,7 @@ export function FocusTrap({ children, active = true }: FocusTrapProps) {
     };
 
     const elements = getFocusableElements();
-    if (elements.length > 0) elements[0].focus();
+    if (elements.length > 0) elements[0]?.focus();
 
     container.addEventListener('keydown', handleKeyDown);
     return () => {

@@ -66,7 +66,9 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
     setFiles((prev) => {
       const next = [...prev];
       const [item] = next.splice(fromIdx, 1);
-      next.splice(toIdx, 0, item);
+      if (item) {
+        next.splice(toIdx, 0, item);
+      }
       return next;
     });
   }, []);

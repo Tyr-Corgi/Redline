@@ -213,7 +213,8 @@ export async function saveSession(session: SavedSession): Promise<void> {
         } else {
           backupKeys.sort().reverse();
           for (let i = MAX_STORED_SESSIONS; i < backupKeys.length; i++) {
-            store.delete(backupKeys[i]);
+            const key = backupKeys[i];
+            if (key) store.delete(key);
           }
         }
       };

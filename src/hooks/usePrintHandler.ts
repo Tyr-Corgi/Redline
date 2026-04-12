@@ -78,6 +78,11 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
     html.appendChild(head);
     const body = doc.createElement('body');
 
+    // C1 FIX: Declare reusable canvas outside try so finally can dispose it
+    const tempCanvas = doc.createElement('canvas');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let reusableCanvas: any = null;
+
     try {
       const { Canvas: TempFabric } = await import('fabric');
 
@@ -129,21 +134,31 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
           // Render annotation overlay at stored zoom dimensions (no JSON transform)
           const annotEntry = allAnnotations.get(p);
           if (annotEntry) {
-            let tc: InstanceType<typeof TempFabric> | null = null;
             try {
               const parsed = JSON.parse(annotEntry.json);
               if (parsed.objects && parsed.objects.length > 0) {
                 // Render at stored zoom dimensions — matches raw JSON coords
                 const storedViewport = page.getViewport({ scale: annotEntry.zoom, rotation: rot });
-                const tempCanvas = doc.createElement('canvas');
-                tc = new TempFabric(tempCanvas, {
-                  width: storedViewport.width,
-                  height: storedViewport.height,
-                });
+
+                // C1 FIX: Reuse canvas instead of creating new one per page
+                if (!reusableCanvas) {
+                  reusableCanvas = new TempFabric(tempCanvas, {
+                    width: storedViewport.width,
+                    height: storedViewport.height,
+                  });
+                } else {
+                  // Resize and clear for next page
+                  reusableCanvas.setDimensions({
+                    width: storedViewport.width,
+                    height: storedViewport.height,
+                  });
+                  reusableCanvas.clear();
+                }
+
                 // Load raw JSON as-is
-                await tc.loadFromJSON(annotEntry.json);
-                tc.renderAll();
-                const overlayUrl = tc.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
+                await reusableCanvas.loadFromJSON(annotEntry.json);
+                reusableCanvas.renderAll();
+                const overlayUrl = reusableCanvas.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
                 // CSS stretches the overlay image to match the base viewport
                 const overlayImg = doc.createElement('img');
                 overlayImg.className = 'overlay-img';
@@ -153,16 +168,6 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
               }
             } catch (error) {
               console.warn('[Redline]', error);
-            } finally {
-              if (tc) {
-                tc.dispose();
-                // Clean up DOM element
-                const canvasEl = tc.getElement();
-                if (canvasEl?.parentNode) {
-                  canvasEl.parentNode.removeChild(canvasEl);
-                }
-                tc = null;
-              }
             }
           }
           body.appendChild(printPageDiv);
@@ -189,6 +194,15 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
         'error'
       );
     } finally {
+      // C1 FIX: Dispose the single reusable canvas after all pages processed
+      if (reusableCanvas) {
+        reusableCanvas.dispose();
+        const canvasEl = reusableCanvas.getElement();
+        if (canvasEl?.parentNode) {
+          canvasEl.parentNode.removeChild(canvasEl);
+        }
+        reusableCanvas = null;
+      }
       setIsBusy(false);
     }
   }, [

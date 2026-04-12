@@ -25,7 +25,7 @@ export async function renderPdfPage(
   rotation: number,
   renderTaskRef: React.MutableRefObject<{ cancel: () => void } | null>,
   isMounted: () => boolean
-): Promise<{ width: number; height: number } | null> {
+): Promise<{ width: number; height: number; baseWidth: number; baseHeight: number } | null> {
   if (!canvas || !isMounted()) return null;
 
   if (renderTaskRef.current) {
@@ -60,7 +60,13 @@ export async function renderPdfPage(
 
     // Only return if still mounted
     if (isMounted()) {
-      return { width: viewport.width, height: viewport.height };
+      const baseViewport = page.getViewport({ scale: 1.0, rotation });
+      return {
+        width: viewport.width,
+        height: viewport.height,
+        baseWidth: baseViewport.width,
+        baseHeight: baseViewport.height,
+      };
     }
     return null;
   } catch (err: unknown) {

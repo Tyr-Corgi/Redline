@@ -105,9 +105,11 @@ async function embedCanvasImage(
   const page = pages[pageIndex];
 
   const base64Data = canvasDataUrl.split(',')[1];
+  if (!base64Data) throw new Error('Invalid canvas data URL');
   const imageBytes = Uint8Array.from(atob(base64Data), (ch) => ch.charCodeAt(0));
   const image = await pdfDoc.embedPng(imageBytes);
 
+  if (!page) throw new Error('Page not found');
   page.drawImage(image, {
     x: 0,
     y: 0,
@@ -139,7 +141,9 @@ export async function savePdfWithCanvasOverlays(
     if (pageIndex >= pages.length) continue;
     if (rotation) {
       const page = pages[pageIndex];
-      page.setRotation(degrees(rotation));
+      if (page) {
+        page.setRotation(degrees(rotation));
+      }
     }
   }
 
@@ -151,6 +155,7 @@ export async function savePdfWithCanvasOverlays(
     if (pageIndex >= pages.length) continue;
 
     const page = pages[pageIndex];
+    if (!page) continue;
     const { width: pdfWidth, height: pdfHeight } = page.getSize();
 
     await embedCanvasImage(

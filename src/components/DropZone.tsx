@@ -9,7 +9,7 @@ interface DropZoneProps {
 
 export function DropZone({ isDragging, fileInputRef, onFileSelect, onMerge }: DropZoneProps) {
   return (
-    <div className={`drop-zone ${isDragging ? 'drag-over' : ''}`}>
+    <div className={`drop-zone ${isDragging ? 'drag-over' : ''}`} aria-label="PDF file upload area">
       <div className="drop-zone-content">
         <div className="drop-zone-icon">
           <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -42,7 +42,7 @@ export function DropZone({ isDragging, fileInputRef, onFileSelect, onMerge }: Dr
           ref={fileInputRef}
           type="file"
           accept="application/pdf,.pdf"
-          aria-label="Choose PDF file to open"
+          aria-label="Choose a PDF file to open in Redline editor"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) onFileSelect(f);

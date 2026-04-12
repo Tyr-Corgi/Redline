@@ -113,11 +113,11 @@ function Toolbar({
       {/* Tools */}
       <div className="toolbar-section">
         {tools.map(({ tool, title, icon }) => (
-          <Tooltip key={tool} text={title.split(' — ')[0]}>
+          <Tooltip key={tool} text={title.split(' — ')[0] ?? ''}>
             <button
               className={`tool-btn ${activeTool === tool ? 'active' : ''}`}
               onClick={() => onToolChange(tool)}
-              aria-label={title.split(' — ')[0]}
+              aria-label={title.split(' — ')[0] ?? ''}
               aria-pressed={activeTool === tool}
               aria-current={activeTool === tool ? 'true' : undefined}
             >

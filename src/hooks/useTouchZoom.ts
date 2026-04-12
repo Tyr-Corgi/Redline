@@ -17,8 +17,11 @@ export function useTouchZoom(params: UseTouchZoomParams, elementRef: React.RefOb
     let initialZoom = zoom;
 
     const getDistance = (touches: TouchList) => {
-      const dx = touches[0].clientX - touches[1].clientX;
-      const dy = touches[0].clientY - touches[1].clientY;
+      const touch0 = touches[0];
+      const touch1 = touches[1];
+      if (!touch0 || !touch1) return 0;
+      const dx = touch0.clientX - touch1.clientX;
+      const dy = touch0.clientY - touch1.clientY;
       return Math.sqrt(dx * dx + dy * dy);
     };
 
