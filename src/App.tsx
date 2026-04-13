@@ -242,19 +242,26 @@ export default function App() {
     }
   }, [currentPage, triggerAutoSave, numPages, pushHistory]);
 
-  const lastHistoryIndexRef = useRef<number>(-1);
+  // Track last-applied historyIndex to detect undo/redo dispatches.
+  // Starts at -1; updated on every apply so the baseline push doesn't
+  // trigger a redundant restore on mount.
+  const lastHistoryAppliedRef = useRef<number>(-1);
   useEffect(() => {
-    if (historyIndex === lastHistoryIndexRef.current) return;
-    lastHistoryIndexRef.current = historyIndex;
+    // Skip if historyIndex hasn't actually changed (or is the initial baseline push)
+    if (historyIndex === lastHistoryAppliedRef.current) return;
+    const prevIndex = lastHistoryAppliedRef.current;
+    lastHistoryAppliedRef.current = historyIndex;
+
+    // Don't restore on first push (baseline) — canvas already has that state
+    if (prevIndex === -1) return;
+
     if (historyIndex < 0 || historyIndex >= history.length) return;
     const entry = history[historyIndex];
     if (!entry || entry.page !== currentPage || !fabricCanvasRef.current) return;
     isRestoringHistoryRef.current = true;
     const canvas = fabricCanvasRef.current;
-    canvas.off('object:modified');
-    canvas.off('object:added');
-    canvas.off('object:removed');
-    canvas.off('path:created');
+    // Temporarily suppress change tracking while restoring state.
+    // Do NOT remove event listeners — PageCanvas owns them and won't re-add them.
     canvas.selection = false;
     canvas.discardActiveObject();
     canvas.loadFromJSON(entry.snapshot).then(() => {
@@ -473,6 +480,9 @@ export default function App() {
                 rotation={getPageRotation(currentPage)}
                 onCanvasReady={(fc) => {
                   fabricCanvasRef.current = fc as FabricCanvasWithOverlay;
+                  // Push baseline snapshot so there's a state to undo TO
+                  const baseline = JSON.stringify(fc.toJSON());
+                  pushHistory(currentPage, baseline);
                 }}
                 onModified={handleCanvasModified}
                 onAnnotationsChange={(page, json, annotZoom) => {
