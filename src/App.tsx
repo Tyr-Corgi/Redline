@@ -350,10 +350,10 @@ export default function App() {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
         const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        setZoom(Math.round(Math.max(0.25, Math.min(4, zoom + delta)) * 100) / 100);
+        setZoom(Math.round(Math.max(0.25, Math.min(4, latestZoomRef.current + delta)) * 100) / 100);
       }
     },
-    [zoom, setZoom]
+    [setZoom]
   );
 
   const handleDeletePage = useCallback((pageNum: number) => {
@@ -382,6 +382,7 @@ export default function App() {
         Skip to document
       </a>
       <ErrorBoundary>
+        <header role="banner">
         <Toolbar
           activeTool={activeTool}
           toolConfig={toolConfig}
@@ -403,6 +404,7 @@ export default function App() {
           onUndo={undo}
           onRedo={redo}
         />
+        </header>
       </ErrorBoundary>
       {showMergeModal && (
         <ErrorBoundary>
@@ -420,7 +422,7 @@ export default function App() {
       {restoringSession && (
         <div className="restoring-session-indicator" role="status">Restoring session...</div>
       )}
-      <div className="editor-body">
+      <main className="editor-body">
         {pdfDoc && (
           <ErrorBoundary>
             <PageSidebar
@@ -478,7 +480,7 @@ export default function App() {
             </ErrorBoundary>
           )}
         </div>
-      </div>
+      </main>
       {toast && <ToastNotification message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />}
       {confirmAction && (
         <ConfirmDialog

@@ -12,7 +12,7 @@ export function DropZone({ isDragging, fileInputRef, onFileSelect, onMerge }: Dr
     <div className={`drop-zone ${isDragging ? 'drag-over' : ''}`} aria-label="PDF file upload area">
       <div className="drop-zone-content">
         <div className="drop-zone-icon">
-          <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <rect x="16" y="8" width="48" height="64" rx="4" stroke="currentColor" strokeWidth="2" opacity="0.3" />
             <rect
               x="20"

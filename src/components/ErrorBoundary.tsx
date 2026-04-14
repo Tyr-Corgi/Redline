@@ -27,7 +27,7 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{
+        <div role="alert" style={{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -39,7 +39,7 @@ export class ErrorBoundary extends Component<Props, State> {
           padding: '40px',
           textAlign: 'center',
         }}>
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="1.5" style={{ marginBottom: '24px' }}>
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="1.5" aria-hidden="true" style={{ marginBottom: '24px' }}>
             <circle cx="12" cy="12" r="10" />
             <line x1="12" y1="8" x2="12" y2="12" />
             <line x1="12" y1="16" x2="12.01" y2="16" />

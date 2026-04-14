@@ -40,6 +40,8 @@ export interface SavedSession {
 
 let persistentDB: IDBDatabase | null = null;
 
+const IDB_TIMEOUT_MS = 5000;
+
 function getDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (persistentDB) {
@@ -47,6 +49,9 @@ function getDB(): Promise<IDBDatabase> {
       return;
     }
     const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const timer = setTimeout(() => {
+      reject(new Error('IndexedDB open timed out'));
+    }, IDB_TIMEOUT_MS);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -54,11 +59,15 @@ function getDB(): Promise<IDBDatabase> {
       }
     };
     request.onsuccess = () => {
+      clearTimeout(timer);
       persistentDB = request.result;
       persistentDB.onclose = () => { persistentDB = null; };
       resolve(persistentDB);
     };
-    request.onerror = () => reject(request.error);
+    request.onerror = () => {
+      clearTimeout(timer);
+      reject(request.error);
+    };
   });
 }
 
@@ -91,14 +100,16 @@ export function validateAnnotationJson(json: string): boolean {
       const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
       if (DANGEROUS_KEYS.some(key => Object.prototype.hasOwnProperty.call(obj, key))) return false;
 
-      // Also check nested objects recursively
-      const checkNested = (val: unknown): boolean => {
+      // Also check nested objects recursively with depth limit to prevent stack overflow
+      const MAX_NESTING_DEPTH = 20;
+      const checkNested = (val: unknown, depth = 0): boolean => {
+        if (depth > MAX_NESTING_DEPTH) return false; // Reject excessively nested structures
         if (!val || typeof val !== 'object') return true;
-        if (Array.isArray(val)) return val.every(checkNested);
+        if (Array.isArray(val)) return val.every(v => checkNested(v, depth + 1));
         if (DANGEROUS_KEYS.some(key => Object.prototype.hasOwnProperty.call(val, key))) return false;
-        return Object.values(val as Record<string, unknown>).every(checkNested);
+        return Object.values(val as Record<string, unknown>).every(v => checkNested(v, depth + 1));
       };
-      if (!Object.values(obj).every(checkNested)) return false;
+      if (!Object.values(obj).every(v => checkNested(v, 0))) return false;
 
       // Reject suspicious properties that could be XSS vectors
       if (obj.src && typeof obj.src === 'string' && obj.src.toLowerCase().includes('javascript:')) {

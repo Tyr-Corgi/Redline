@@ -316,7 +316,7 @@ export function PageCanvas({
 
   // Image upload
   const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
-  const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'];
+  const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -324,7 +324,7 @@ export function PageCanvas({
 
     // Validate MIME type to prevent data URL injection (Issue C2)
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      onToast?.(`Invalid file type. Only images are allowed (PNG, JPEG, GIF, WebP, SVG).`, 'error');
+      onToast?.(`Invalid file type. Only images are allowed (PNG, JPEG, GIF, WebP).`, 'error');
       e.target.value = '';
       return;
     }
