@@ -60,6 +60,7 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
     const doc = printWindow.document;
     doc.open();
     const html = doc.createElement('html');
+    html.setAttribute('lang', 'en');
     const head = doc.createElement('head');
     const title = doc.createElement('title');
     title.textContent = 'Print PDF';
@@ -80,8 +81,7 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
 
     // C1 FIX: Declare reusable canvas outside try so finally can dispose it
     const tempCanvas = doc.createElement('canvas');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let reusableCanvas: any = null;
+    let reusableCanvas: FabricCanvas | null = null;
 
     try {
       const { Canvas: TempFabric } = await import('fabric');

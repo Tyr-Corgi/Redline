@@ -221,6 +221,8 @@ export function PageCanvas({
       fabricRef.current = null;
       wrapper.replaceChildren();
     };
+  // basePageSize is the only meaningful trigger — other deps are stable refs/callbacks.
+  // Including them would cause canvas recreation on every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [basePageSize]);
 
@@ -375,9 +377,17 @@ export function PageCanvas({
       <div
         ref={fabricWrapperRef}
         role="application"
-        aria-label={`Annotation canvas for page ${pageNum}, interactive drawing surface`}
+        aria-label={`Annotation canvas for page ${pageNum}. Use mouse or touch to draw. Press V for select, T for text, D for draw, H for highlight. Delete or Backspace removes selected objects.`}
         aria-roledescription="annotation canvas"
         tabIndex={0}
+        onKeyDown={(e) => {
+          // Let global keyboard shortcuts handle tool changes and actions.
+          // This handler exists to confirm role="application" has keyboard support.
+          if (e.key === 'Escape' && fabricRef.current) {
+            fabricRef.current.discardActiveObject();
+            fabricRef.current.renderAll();
+          }
+        }}
         style={{ position: 'absolute', top: 0, left: 0, zIndex: 2, width: pageSize?.width, height: pageSize?.height }}
       />
       <div

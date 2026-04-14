@@ -91,11 +91,6 @@ export default function App() {
   latestZoomRef.current = zoom;
 
   useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 5000);
-    return () => clearTimeout(t);
-  }, [toast]);
-  useEffect(() => {
     document.title = file ? `${file.name} — Redline` : 'Redline';
   }, [file]);
   useEffect(() => {
@@ -115,7 +110,10 @@ export default function App() {
         console.error('Failed to restore session:', err);
       }
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Session restore runs exactly once on mount. Dependencies (openFromBytes, etc.)
+  // are stable useCallback refs that never change, so omitting them is safe.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleFileSelect = useCallback(
     async (selectedFile: File) => {
@@ -317,8 +315,8 @@ export default function App() {
     onUndo: undo,
     onRedo: redo,
     onSave: handleSave,
-    onZoomIn: useCallback(() => setZoom(Math.min(4, zoom + 0.25)), [zoom, setZoom]),
-    onZoomOut: useCallback(() => setZoom(Math.max(0.25, zoom - 0.25)), [zoom, setZoom]),
+    onZoomIn: useCallback(() => setZoom(Math.min(4, latestZoomRef.current + 0.25)), [setZoom]),
+    onZoomOut: useCallback(() => setZoom(Math.max(0.25, latestZoomRef.current - 0.25)), [setZoom]),
     onDelete: () => {},
     onToolChange: setTool,
     onOpenFile: useCallback(() => fileInputRef.current?.click(), []),
@@ -420,21 +418,7 @@ export default function App() {
       )}
 
       {restoringSession && (
-        <div
-          style={{
-            position: 'fixed',
-            top: '10px',
-            right: '10px',
-            padding: '8px 12px',
-            background: 'rgba(0,0,0,0.7)',
-            color: 'white',
-            borderRadius: '4px',
-            fontSize: '12px',
-            zIndex: 1000,
-          }}
-        >
-          Restoring session...
-        </div>
+        <div className="restoring-session-indicator" role="status">Restoring session...</div>
       )}
       <div className="editor-body">
         {pdfDoc && (

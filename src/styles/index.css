@@ -874,6 +874,33 @@ select:focus-visible {
   background: #ffffff;
 }
 
+.signature-type-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+.signature-type-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.signature-type-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-family: 'Georgia', serif;
+  font-style: italic;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.signature-type-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .signature-modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -1020,6 +1047,18 @@ select:focus-visible {
 .save-indicator.saved {
   background: rgba(74, 222, 128, 0.95);
   color: #ffffff;
+}
+
+.restoring-session-indicator {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  border-radius: 4px;
+  font-size: 12px;
+  z-index: 1000;
 }
 
 @keyframes fadeIn {
