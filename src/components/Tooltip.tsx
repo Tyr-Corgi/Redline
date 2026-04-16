@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 interface TooltipProps {
   text: string;
@@ -28,6 +28,16 @@ export function Tooltip({ text, children, position = 'bottom', delay = 400 }: To
     }
     setVisible(false);
   }, []);
+
+  // Dismiss tooltip on ESC key (WCAG 2.1.1)
+  useEffect(() => {
+    if (!visible) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { hide(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, hide]);
 
   return (
     <div

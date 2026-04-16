@@ -90,10 +90,13 @@ export async function initializeFabricCanvas(
   if (savedAnnotations) {
     try {
       const zoomRatio = savedAnnotations.zoom > 0 ? currentZoom / savedAnnotations.zoom : 1;
-      // JSON.parse produces a fresh object tree — no prototype pollution risk
-      // from our own serialized annotation data. Do NOT freeze: Fabric.js
-      // mutates objects during loadFromJSON deserialization.
-      const parsedAnnotations = JSON.parse(savedAnnotations.json);
+      // Use reviver to strip dangerous keys that could cause prototype pollution.
+      // Do NOT freeze: Fabric.js mutates objects during loadFromJSON deserialization.
+      const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
+      const parsedAnnotations = JSON.parse(savedAnnotations.json, (key, value) => {
+        if (DANGEROUS_KEYS.includes(key)) return undefined;
+        return value;
+      });
       await fc.loadFromJSON(parsedAnnotations);
       if (Math.abs(zoomRatio - 1) > 0.001) {
         fc.forEachObject((obj) => {

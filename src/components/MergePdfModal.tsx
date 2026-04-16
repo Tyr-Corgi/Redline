@@ -126,7 +126,7 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
       <div className="merge-modal" role="dialog" aria-modal="true" aria-labelledby="merge-modal-title" aria-describedby="merge-modal-instructions" onClick={(e) => e.stopPropagation()}>
         <p id="merge-modal-instructions" className="sr-only">Press Escape to close this dialog.</p>
         <div className="merge-modal-header">
-          <h3 id="merge-modal-title">Merge PDFs</h3>
+          <h2 id="merge-modal-title">Merge PDFs</h2>
           <button className="signature-modal-close" onClick={onClose} aria-label="Close merge dialog">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />

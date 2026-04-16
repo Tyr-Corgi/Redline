@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback, lazy, Suspense } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import { usePdfEditor } from './hooks/usePdfEditor';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { usePrintHandler } from './hooks/usePrintHandler';
@@ -11,10 +11,11 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { DropZone } from './components/DropZone';
 import { ToastNotification } from './components/ToastNotification';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { EditorStateContext, EditorActionsContext } from './contexts/EditorContext';
+import type { EditorStateValue, EditorActionsValue } from './contexts/EditorContext';
 const MergePdfModal = lazy(() => import('./components/MergePdfModal'));
-import { loadSession, clearSession, createDebouncedSaver, markPageDirty } from './services/storageService';
+import { loadSession, clearSession, createDebouncedSaver, markPageDirty, getDirtyPages, clearDirtyPages } from './services/storageService';
 import type { Canvas as FabricCanvas } from 'fabric';
-
 type FabricCanvasWithOverlay = FabricCanvas & {
   getOverlay?: () => { dataUrl: string; width: number; height: number } | null;
 };
@@ -30,10 +31,11 @@ interface FabricTextObject {
   stroke?: string;
 }
 
+const AUTO_SAVE_DEBOUNCE_MS = 2000;
+const SAVE_STATUS_DELAY_MS = 900;
+const SAVE_STATUS_RESET_MS = 3500;
+
 export default function App() {
-  const AUTO_SAVE_DEBOUNCE_MS = 2000;
-  const SAVE_STATUS_DELAY_MS = 900;
-  const SAVE_STATUS_RESET_MS = 3500;
   const [isBusy, setIsBusy] = useState(false);
 
   const {
@@ -192,32 +194,34 @@ export default function App() {
     [setToolConfig]
   );
 
+  const lastSavedRef = useRef<{ annotations: Record<number, string>; zooms: Record<number, number> }>({ annotations: {}, zooms: {} });
+
   const triggerAutoSave = useCallback(() => {
-    const { file: currentFile, currentPage: page, zoom: currentZoom } = latestEditorRef.current;
-    if (!pdfBytesRef.current || !currentFile) return;
+    const { file: f, currentPage: pg, zoom: z } = latestEditorRef.current;
+    if (!pdfBytesRef.current || !f) return;
     setSaveStatus('saving');
-    const annotations: Record<number, string> = {};
-    const annotationZooms: Record<number, number> = {};
-    const all = getAllPageAnnotations();
-    for (const [pageNum, entry] of all.entries()) {
-      annotations[pageNum] = entry.json;
-      annotationZooms[pageNum] = entry.zoom;
+    const dirty = getDirtyPages();
+    const annotations = { ...lastSavedRef.current.annotations };
+    const annotationZooms = { ...lastSavedRef.current.zooms };
+    if (dirty.size > 0) {
+      for (const dp of dirty) {
+        const e = getPageAnnotations(dp);
+        if (e) { annotations[dp] = e.json; annotationZooms[dp] = e.zoom; }
+      }
+      clearDirtyPages();
+    } else {
+      for (const [p, e] of getAllPageAnnotations().entries()) {
+        annotations[p] = e.json; annotationZooms[p] = e.zoom;
+      }
     }
+    lastSavedRef.current = { annotations, zooms: annotationZooms };
     autoSaverRef.current.save({
-      pdfBytes: pdfBytesRef.current,
-      pdfFileName: currentFile.name,
-      annotations,
-      annotationZooms,
-      currentPage: page,
-      zoom: currentZoom,
-      savedAt: Date.now(),
+      pdfBytes: pdfBytesRef.current, pdfFileName: f.name,
+      annotations, annotationZooms, currentPage: pg, zoom: z, savedAt: Date.now(),
     });
-    setTimeout(() => {
-      setSaveStatus('saved');
-      setStatusAnnouncement('Document saved');
-    }, SAVE_STATUS_DELAY_MS);
+    setTimeout(() => { setSaveStatus('saved'); setStatusAnnouncement('Document saved'); }, SAVE_STATUS_DELAY_MS);
     setTimeout(() => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)), SAVE_STATUS_RESET_MS);
-  }, [getAllPageAnnotations]);
+  }, [getAllPageAnnotations, getPageAnnotations]);
 
   const prevPageRef = useRef<number>(currentPage);
   useEffect(() => {
@@ -361,6 +365,21 @@ export default function App() {
     pageAnnotationsRef.current.delete(pageNum);
   }, [deletePage]);
 
+  const handleMergePdfs = useCallback(() => setShowMergeModal(true), []);
+
+  const editorState: EditorStateValue = useMemo(() => ({
+    activeTool, toolConfig, currentPage, numPages, zoom, canUndo, canRedo,
+    fileName: file?.name,
+  }), [activeTool, toolConfig, currentPage, numPages, zoom, canUndo, canRedo, file?.name]);
+
+  const editorActions: EditorActionsValue = useMemo(() => ({
+    onNewProject: handleNewProject, onOpenFile: handleFileSelect, onSave: handleSave,
+    onPrint: handlePrint, onMergePdfs: handleMergePdfs, onToolChange: setTool,
+    onToolConfigChange: handleToolConfigChange, onPageChange: setPage,
+    onZoomChange: setZoom, onUndo: undo, onRedo: redo,
+  }), [handleNewProject, handleFileSelect, handleSave, handlePrint, handleMergePdfs,
+    setTool, handleToolConfigChange, setPage, setZoom, undo, redo]);
+
   const handleCanvasModified = useCallback(() => {
     if (isRestoringHistoryRef.current) return;
     canvasDirtyRef.current = true;
@@ -383,27 +402,12 @@ export default function App() {
       </a>
       <ErrorBoundary>
         <header role="banner">
-        <Toolbar
-          activeTool={activeTool}
-          toolConfig={toolConfig}
-          currentPage={currentPage}
-          numPages={numPages}
-          zoom={zoom}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          fileName={file?.name}
-          onNewProject={handleNewProject}
-          onOpenFile={handleFileSelect}
-          onSave={handleSave}
-          onPrint={handlePrint}
-          onMergePdfs={() => setShowMergeModal(true)}
-          onToolChange={setTool}
-          onToolConfigChange={handleToolConfigChange}
-          onPageChange={setPage}
-          onZoomChange={setZoom}
-          onUndo={undo}
-          onRedo={redo}
-        />
+        <h1 className="sr-only">Redline PDF Editor</h1>
+        <EditorStateContext.Provider value={editorState}>
+        <EditorActionsContext.Provider value={editorActions}>
+          <Toolbar />
+        </EditorActionsContext.Provider>
+        </EditorStateContext.Provider>
         </header>
       </ErrorBoundary>
       {showMergeModal && (

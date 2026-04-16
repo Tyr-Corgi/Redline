@@ -338,6 +338,13 @@ export function PageCanvas({
     const reader = new FileReader();
     reader.onload = (event) => {
       const url = event.target?.result as string;
+      // Validate data URL format before passing to Fabric.js (P1 security)
+      // Whitelist specific raster MIME types — SVG is blocked to prevent XSS
+      const SAFE_DATA_URL_PREFIXES = ['data:image/png', 'data:image/jpeg', 'data:image/gif', 'data:image/webp'];
+      if (!url || !SAFE_DATA_URL_PREFIXES.some(prefix => url.startsWith(prefix))) {
+        onToast?.('Invalid image data. Only PNG, JPEG, GIF, and WebP are allowed.', 'error');
+        return;
+      }
       fabric.Image.fromURL(url).then((img) => {
         img.scaleToWidth(IMAGE_DEFAULT_WIDTH);
         fabricRef.current?.add(img);
@@ -381,11 +388,14 @@ export function PageCanvas({
         aria-roledescription="annotation canvas"
         tabIndex={0}
         onKeyDown={(e) => {
-          // Let global keyboard shortcuts handle tool changes and actions.
-          // This handler exists to confirm role="application" has keyboard support.
-          if (e.key === 'Escape' && fabricRef.current) {
-            fabricRef.current.discardActiveObject();
-            fabricRef.current.renderAll();
+          if (e.key === 'Escape') {
+            if (fabricRef.current) {
+              fabricRef.current.discardActiveObject();
+              fabricRef.current.renderAll();
+            }
+            // Move focus out of role="application" to the parent document area
+            // so keyboard users are not trapped (WCAG 2.1.2)
+            (e.currentTarget.closest('.editor-body') as HTMLElement)?.focus();
           }
         }}
         style={{ position: 'absolute', top: 0, left: 0, zIndex: 2, width: pageSize?.width, height: pageSize?.height }}

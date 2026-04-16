@@ -92,7 +92,7 @@ export function SignatureModal({ onSave, onCancel }: SignatureModalProps) {
       <div className="signature-modal-content" role="dialog" aria-modal="true" aria-labelledby="signature-modal-title" aria-describedby="signature-modal-instructions" onClick={(e) => e.stopPropagation()}>
         <p id="signature-modal-instructions" className="sr-only">Press Escape to close this dialog.</p>
         <div className="signature-modal-header">
-          <h3 id="signature-modal-title">Draw Your Signature</h3>
+          <h2 id="signature-modal-title">Draw Your Signature</h2>
           <button className="signature-modal-close" onClick={onCancel} aria-label="Close signature dialog">✕</button>
         </div>
         <div className="signature-canvas-wrapper" aria-label="Signature drawing area. Use mouse or touch to draw your signature.">

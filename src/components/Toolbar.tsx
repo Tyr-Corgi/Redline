@@ -1,28 +1,7 @@
 import { useRef, memo } from 'react';
-import type { Tool, ToolConfig } from '../types';
+import type { Tool } from '../types';
 import { Tooltip } from './Tooltip';
-
-interface ToolbarProps {
-  activeTool: Tool;
-  toolConfig: ToolConfig;
-  currentPage: number;
-  numPages: number;
-  zoom: number;
-  canUndo: boolean;
-  canRedo: boolean;
-  fileName?: string;
-  onNewProject: () => void;
-  onOpenFile: (file: File) => void;
-  onSave: () => void;
-  onPrint: () => void;
-  onMergePdfs: () => void;
-  onToolChange: (tool: Tool) => void;
-  onToolConfigChange: (config: Partial<ToolConfig>) => void;
-  onPageChange: (page: number) => void;
-  onZoomChange: (zoom: number) => void;
-  onUndo: () => void;
-  onRedo: () => void;
-}
+import { useEditorContext } from '../contexts/EditorContext';
 
 const zoomLevels = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
 const fontSizes = [8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 60, 72];
@@ -46,26 +25,27 @@ const tools: { tool: Tool; title: string; icon: string }[] = [
   { tool: 'eraser', title: 'Eraser — Click on any annotation to remove it', icon: 'M20 20H7L3 16l10-10 7 7v7zM10 10l4 4' },
 ];
 
-function Toolbar({
-  activeTool,
-  toolConfig,
-  currentPage,
-  numPages,
-  zoom,
-  canUndo,
-  canRedo,
-  onNewProject,
-  onOpenFile,
-  onSave,
-  onPrint,
-  onMergePdfs,
-  onToolChange,
-  onToolConfigChange,
-  onPageChange,
-  onZoomChange,
-  onUndo,
-  onRedo,
-}: ToolbarProps) {
+function Toolbar() {
+  const {
+    activeTool,
+    toolConfig,
+    currentPage,
+    numPages,
+    zoom,
+    canUndo,
+    canRedo,
+    onNewProject,
+    onOpenFile,
+    onSave,
+    onPrint,
+    onMergePdfs,
+    onToolChange,
+    onToolConfigChange,
+    onPageChange,
+    onZoomChange,
+    onUndo,
+    onRedo,
+  } = useEditorContext();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
