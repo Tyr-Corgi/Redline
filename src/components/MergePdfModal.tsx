@@ -79,7 +79,7 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
     setError(null);
     try {
       const result = await mergePdfs(files.map((f) => ({ bytes: f.bytes, name: f.name })));
-      downloadPdf(result, 'merged.pdf');
+      await downloadPdf(result, 'merged.pdf');
     } catch (err) {
       setError(`Merge failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -93,7 +93,9 @@ export default function MergePdfModal({ onClose, onMergedOpen }: MergePdfModalPr
     setError(null);
     try {
       const result = await mergePdfs(files.map((f) => ({ bytes: f.bytes, name: f.name })));
-      onMergedOpen(result.buffer as ArrayBuffer, 'merged.pdf');
+      // Use slice() to get a correctly-sized ArrayBuffer (result.buffer may have padding)
+      const mergedBytes = result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength) as ArrayBuffer;
+      onMergedOpen(mergedBytes, 'merged.pdf');
       onClose();
     } catch (err) {
       setError(`Merge failed: ${err instanceof Error ? err.message : String(err)}`);

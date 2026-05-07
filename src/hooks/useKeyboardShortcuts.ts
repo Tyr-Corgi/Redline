@@ -20,6 +20,15 @@ function isTyping(e: KeyboardEvent): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable === true;
 }
 
+/** Check if a Fabric.js IText/Textbox is being actively edited */
+function isFabricTextEditing(fabricCanvasRef: React.RefObject<FabricCanvasRef | null>): boolean {
+  const canvas = fabricCanvasRef.current;
+  if (!canvas) return false;
+  const active = canvas.getActiveObject();
+  if (!active || typeof active !== 'object') return false;
+  return 'isEditing' in (active as Record<string, unknown>) && !!(active as Record<string, unknown>).isEditing;
+}
+
 export function useKeyboardShortcuts(actions: KeyboardShortcutActions): void {
   const {
     onUndo,
@@ -70,12 +79,12 @@ export function useKeyboardShortcuts(actions: KeyboardShortcutActions): void {
       if (e.key === 'h' || e.key === 'H') {
         if (!isTyping(e)) onToolChange('highlight');
       }
-      // Zoom shortcuts
-      if (e.key === '+' || e.key === '=') {
+      // Zoom shortcuts (skip when typing in inputs or Fabric text objects)
+      if ((e.key === '+' || e.key === '=') && !isTyping(e) && !isFabricTextEditing(fabricCanvasRef)) {
         e.preventDefault();
         onZoomIn();
       }
-      if (e.key === '-' || e.key === '_') {
+      if ((e.key === '-' || e.key === '_') && !isTyping(e) && !isFabricTextEditing(fabricCanvasRef)) {
         e.preventDefault();
         onZoomOut();
       }

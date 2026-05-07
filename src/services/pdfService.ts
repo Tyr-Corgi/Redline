@@ -46,7 +46,8 @@ export async function loadPdf(file: File): Promise<PDFDocumentProxy> {
   if (!await validatePdfBytes(arrayBuffer)) {
     throw new Error('Invalid PDF file: missing PDF magic number header');
   }
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+  // Copy the buffer — PDF.js transfers it to its web worker, which detaches the original
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) });
   return await loadingTask.promise;
 }
 
@@ -57,7 +58,8 @@ export async function loadPdfFromBytes(bytes: ArrayBuffer): Promise<PDFDocumentP
   if (!await validatePdfBytes(bytes)) {
     throw new Error('Invalid PDF file: missing PDF magic number header');
   }
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes) });
+  // Copy the buffer — PDF.js transfers it to its web worker, which detaches the original
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes.slice(0)) });
   return await loadingTask.promise;
 }
 
@@ -125,13 +127,13 @@ async function embedCanvasImage(
  * Applies page rotations and removes deleted pages.
  */
 export async function savePdfWithCanvasOverlays(
-  originalFile: File,
+  source: File | ArrayBuffer,
   canvasImages: Map<number, { dataUrl: string; width: number; height: number }>,
   pageRotations: Record<number, number> = {},
   deletedPages: number[] = [],
 ): Promise<Uint8Array> {
   const { PDFDocument, degrees } = await import('pdf-lib');
-  const arrayBuffer = await originalFile.arrayBuffer();
+  const arrayBuffer = source instanceof ArrayBuffer ? source : await source.arrayBuffer();
   const pdfDoc = await PDFDocument.load(arrayBuffer);
 
   // Apply rotations to pages
@@ -185,8 +187,32 @@ export async function savePdfWithCanvasOverlays(
   return await pdfDoc.save();
 }
 
-export function downloadPdf(pdfBytes: Uint8Array, filename: string): void {
+export async function downloadPdf(pdfBytes: Uint8Array, filename: string): Promise<void> {
   const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
+
+  // Use native Save-As dialog when available (Chromium browsers)
+  if ('showSaveFilePicker' in window) {
+    try {
+      const handle = await (window as unknown as { showSaveFilePicker: (opts: unknown) => Promise<FileSystemFileHandle> })
+        .showSaveFilePicker({
+          suggestedName: filename,
+          types: [{
+            description: 'PDF Document',
+            accept: { 'application/pdf': ['.pdf'] },
+          }],
+        });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (err) {
+      // User cancelled the dialog — don't fall through to auto-download
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      // Other errors — fall through to legacy download
+    }
+  }
+
+  // Fallback for Firefox / Safari: auto-download to Downloads folder
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

@@ -294,6 +294,17 @@ export function PageCanvas({
     return () => clearTimeout(timer);
   }, [activeTool]);
 
+  // Re-activate action tools (signature, image) when clicked while already active
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const tool = (e as CustomEvent).detail;
+      if (tool === 'signature') setSignatureOpen(true);
+      if (tool === 'image') imageInputRef.current?.click();
+    };
+    window.addEventListener('redline:tool-reactivate', handler);
+    return () => window.removeEventListener('redline:tool-reactivate', handler);
+  }, []);
+
   // Clear announcements after 3 seconds to ensure repeated actions trigger
   useEffect(() => {
     if (announcement) {

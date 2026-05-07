@@ -96,7 +96,14 @@ function Toolbar() {
           <Tooltip key={tool} text={title.split(' — ')[0] ?? ''}>
             <button
               className={`tool-btn ${activeTool === tool ? 'active' : ''}`}
-              onClick={() => onToolChange(tool)}
+              onClick={() => {
+                if (activeTool === tool && (tool === 'signature' || tool === 'image')) {
+                  // Re-clicking an action tool should re-trigger its action
+                  window.dispatchEvent(new CustomEvent('redline:tool-reactivate', { detail: tool }));
+                } else {
+                  onToolChange(tool);
+                }
+              }}
               aria-label={title.split(' — ')[0] ?? ''}
               aria-pressed={activeTool === tool}
               aria-current={activeTool === tool ? 'true' : undefined}

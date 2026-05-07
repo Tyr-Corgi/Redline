@@ -18,7 +18,7 @@ interface PrintHandlerParams {
   getAllPageAnnotations: () => Map<number, { json: string; zoom: number }>;
 }
 
-const PRINT_DPI_SCALE = 2;
+const PRINT_DPI_SCALE = 3;
 const BATCH_SIZE = 5;
 
 export function usePrintHandler(params: PrintHandlerParams): () => Promise<void> {
@@ -73,14 +73,21 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
       .print-page:last-child { page-break-after: auto; }
       .print-page img { display: block; }
       .overlay-img { position: absolute; top: 0; left: 0; pointer-events: none; }
-      @media print { .print-page { page-break-after: always; } .print-page:last-child { page-break-after: auto; } }
+      @media print {
+        @page { margin: 0; size: auto; }
+        body { margin: 0; }
+        .print-page { page-break-after: always; }
+        .print-page:last-child { page-break-after: auto; }
+      }
     `;
     head.appendChild(style);
     html.appendChild(head);
     const body = doc.createElement('body');
 
-    // C1 FIX: Declare reusable canvas outside try so finally can dispose it
-    const tempCanvas = doc.createElement('canvas');
+    // Create a hidden DOM-attached canvas for Fabric.js 7.x compatibility
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.style.cssText = 'position:fixed;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;';
+    document.body.appendChild(tempCanvas);
     let reusableCanvas: FabricCanvas | null = null;
 
     try {
@@ -194,14 +201,14 @@ export function usePrintHandler(params: PrintHandlerParams): () => Promise<void>
         'error'
       );
     } finally {
-      // C1 FIX: Dispose the single reusable canvas after all pages processed
+      // Grab the element ref BEFORE dispose (Fabric 7.x nullifies internals on dispose)
+      const canvasEl = tempCanvas;
       if (reusableCanvas) {
-        reusableCanvas.dispose();
-        const canvasEl = reusableCanvas.getElement();
-        if (canvasEl?.parentNode) {
-          canvasEl.parentNode.removeChild(canvasEl);
-        }
+        try { reusableCanvas.dispose(); } catch { /* already disposed */ }
         reusableCanvas = null;
+      }
+      if (canvasEl.parentNode) {
+        canvasEl.parentNode.removeChild(canvasEl);
       }
       setIsBusy(false);
     }

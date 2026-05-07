@@ -6,6 +6,7 @@ import { savePdfWithCanvasOverlays, downloadPdf } from '../services/pdfService';
 interface SaveHandlerParams {
   file: File | null;
   pdfDoc: PDFDocumentProxy | null;
+  pdfBytesRef: React.RefObject<ArrayBuffer | null>;
   fabricCanvasRef: React.RefObject<FabricCanvas | null>;
   currentPage: number;
   zoom: number;
@@ -22,6 +23,7 @@ export function useSaveHandler(params: SaveHandlerParams): () => Promise<void> {
   const {
     file,
     pdfDoc,
+    pdfBytesRef,
     fabricCanvasRef,
     currentPage,
     zoom,
@@ -48,8 +50,10 @@ export function useSaveHandler(params: SaveHandlerParams): () => Promise<void> {
       const allAnnotations = getAllPageAnnotations();
       const { Canvas: TempFabric } = await import('fabric');
 
-      // C8 FIX: Create ONE reusable canvas instance for all pages
+      // Create a hidden DOM-attached canvas for Fabric.js 7.x compatibility
       const tempCanvas = document.createElement('canvas');
+      tempCanvas.style.cssText = 'position:fixed;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;';
+      document.body.appendChild(tempCanvas);
       let reusableCanvas: InstanceType<typeof TempFabric> | null = null;
 
       try {
@@ -86,7 +90,7 @@ export function useSaveHandler(params: SaveHandlerParams): () => Promise<void> {
 
             await reusableCanvas.loadFromJSON(entry.json);
             reusableCanvas.renderAll();
-            const dataUrl = reusableCanvas.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
+            const dataUrl = reusableCanvas.toDataURL({ format: 'png', quality: 1, multiplier: 3 });
             canvasImages.set(pageNum, {
               dataUrl,
               width: baseViewport.width,
@@ -97,28 +101,31 @@ export function useSaveHandler(params: SaveHandlerParams): () => Promise<void> {
           }
         }
       } finally {
-        // Dispose the single reusable canvas after all pages processed
+        // Grab the element ref BEFORE dispose (Fabric 7.x nullifies internals on dispose)
+        const canvasEl = tempCanvas;
         if (reusableCanvas) {
-          reusableCanvas.dispose();
-          const canvasEl = reusableCanvas.getElement();
-          if (canvasEl?.parentNode) {
-            canvasEl.parentNode.removeChild(canvasEl);
-          }
+          try { reusableCanvas.dispose(); } catch { /* already disposed */ }
           reusableCanvas = null;
+        }
+        if (canvasEl.parentNode) {
+          canvasEl.parentNode.removeChild(canvasEl);
         }
       }
 
+      // Use pdfBytesRef (raw bytes) as the source of truth — avoids stale File handles
+      // and synthetic File objects from session restore / merge that may fail .arrayBuffer()
+      const sourceBytes = pdfBytesRef.current ?? await file.arrayBuffer();
+
       if (canvasImages.size === 0) {
-        const arrayBuffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
+        const bytes = new Uint8Array(sourceBytes);
         const name = file.name.replace('.pdf', '-edited.pdf');
-        downloadPdf(bytes, name);
+        await downloadPdf(bytes, name);
         return;
       }
 
-      const pdfBytes = await savePdfWithCanvasOverlays(file, canvasImages, pageRotations, deletedPages);
+      const pdfBytes = await savePdfWithCanvasOverlays(sourceBytes, canvasImages, pageRotations, deletedPages);
       const name = file.name.replace('.pdf', '-edited.pdf');
-      downloadPdf(pdfBytes, name);
+      await downloadPdf(pdfBytes, name);
     } catch (error) {
       console.error('Save error:', error);
       onToast(`Failed to save PDF: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
@@ -129,6 +136,7 @@ export function useSaveHandler(params: SaveHandlerParams): () => Promise<void> {
     isBusy,
     file,
     pdfDoc,
+    pdfBytesRef,
     fabricCanvasRef,
     currentPage,
     zoom,

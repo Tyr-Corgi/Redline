@@ -1,5 +1,35 @@
 /* Aurora Design System - PDF Editor */
 
+/* Signature Cursive Fonts (OFL licensed, bundled locally) */
+@font-face {
+  font-family: 'Dancing Script';
+  src: url('/fonts/DancingScript-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Great Vibes';
+  src: url('/fonts/GreatVibes-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Alex Brush';
+  src: url('/fonts/AlexBrush-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Sacramento';
+  src: url('/fonts/Sacramento-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* CSS Custom Properties */
 :root {
   /* Aurora Color Palette */
@@ -880,31 +910,118 @@ select:focus-visible {
   background: #ffffff;
 }
 
-.signature-type-wrapper {
+/* Signature Tabs */
+.signature-tabs {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
+  gap: 0;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e0e0e8;
 }
-.signature-type-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-.signature-type-input {
+.signature-tab {
   flex: 1;
-  padding: 6px 10px;
-  border: 1px solid var(--border-secondary);
-  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: #6b6b85;
   font-size: 14px;
-  font-family: 'Georgia', serif;
-  font-style: italic;
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all var(--transition-fast);
+  font-family: var(--font-family);
+}
+.signature-tab:hover {
+  color: #2a2a3d;
+}
+.signature-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Typed Signature Panel */
+.signature-type-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Font Picker */
+.signature-font-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.signature-font-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  border: 2px solid #e0e0e8;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.signature-font-option:hover {
+  border-color: #b0b0c0;
+  background: #f8f8fc;
+}
+.signature-font-option.active {
+  border-color: var(--accent);
+  background: #f0f4ff;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.signature-font-option span:first-child {
+  color: #1a1a2e;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.signature-font-label {
+  font-size: 10px;
+  font-family: var(--font-family);
+  color: #8b8ba0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Signature Text Input */
+.signature-type-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 2px solid #e0e0e8;
+  border-radius: var(--radius-md);
+  font-size: 22px;
+  background: #ffffff;
+  color: #1a1a2e;
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast);
 }
 .signature-type-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.15);
+}
+.signature-type-input::placeholder {
+  color: #b0b0c0;
+}
+
+/* Signature Preview */
+.signature-preview-wrapper {
+  border: 2px solid #e0e0e8;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.04);
+  background: #ffffff;
+}
+.signature-preview-wrapper canvas {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .signature-modal-actions {

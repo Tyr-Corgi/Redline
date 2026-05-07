@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState, memo, useMemo } from 'react';
+import { useRef, useEffect, useCallback, useState, memo } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 interface PageSidebarProps {
@@ -28,15 +28,9 @@ function PageSidebarComponent({
   const [visibleThumbnails, setVisibleThumbnails] = useState<Set<number>>(new Set([currentPage]));
   const observerRef = useRef<IntersectionObserver | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [containerHeight, setContainerHeight] = useState(0);
 
-  // Constants for windowed rendering
-  const THUMB_HEIGHT = 200; // approximate height per thumbnail slot including padding
-  const BUFFER = 3; // render 3 extra above and below viewport
-
-  // Initialize IntersectionObserver once. Cleanup on unmount prevents memory leaks.
-  // Safe from double-mount in StrictMode due to ref check.
+  // Initialize IntersectionObserver for lazy thumbnail rendering.
+  // Only thumbnails scrolled into view get their canvas rendered.
   useEffect(() => {
     if (!observerRef.current) {
       observerRef.current = new IntersectionObserver((entries) => {
@@ -46,7 +40,7 @@ function PageSidebarComponent({
             if (pageNum) setVisibleThumbnails(prev => new Set(prev).add(pageNum));
           }
         });
-      }, { rootMargin: '100px' });
+      }, { rootMargin: '200px' });
     }
 
     return () => observerRef.current?.disconnect();
@@ -56,58 +50,36 @@ function PageSidebarComponent({
     setVisibleThumbnails(prev => new Set(prev).add(currentPage));
   }, [currentPage]);
 
-  // Track scroll position and container height for windowed rendering
+  // Scroll active page into view when currentPage changes (e.g. keyboard nav).
+  // Reads scroll position directly from the DOM — no reactive state needed.
+  const prevSidebarPageRef = useRef(currentPage);
   useEffect(() => {
+    if (prevSidebarPageRef.current === currentPage) return;
+    prevSidebarPageRef.current = currentPage;
+
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    const handleScroll = () => setScrollTop(container.scrollTop);
-    const handleResize = () => setContainerHeight(container.clientHeight);
+    // Find the actual thumbnail element for pixel-accurate scrolling
+    const thumb = container.querySelector(`[data-page="${currentPage}"]`) as HTMLElement | null;
+    if (!thumb) return;
 
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    handleResize();
-    const ro = new ResizeObserver(handleResize);
-    ro.observe(container);
-
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      ro.disconnect();
-    };
-  }, []);
-
-  // Scroll active page into view when currentPage changes
-  useEffect(() => {
-    if (!scrollContainerRef.current) return;
-    const pageIndex = visiblePages.indexOf(currentPage);
-    if (pageIndex === -1) return;
-
-    const scrollPosition = pageIndex * THUMB_HEIGHT;
-    const container = scrollContainerRef.current;
-    const isInView = scrollPosition >= scrollTop && scrollPosition <= scrollTop + containerHeight - THUMB_HEIGHT;
+    const thumbTop = thumb.offsetTop;
+    const thumbHeight = thumb.offsetHeight;
+    const viewTop = container.scrollTop;
+    const viewHeight = container.clientHeight;
+    const isInView = thumbTop >= viewTop && thumbTop + thumbHeight <= viewTop + viewHeight;
 
     if (!isInView) {
-      container.scrollTo({ top: scrollPosition - containerHeight / 2, behavior: 'smooth' });
+      container.scrollTo({ top: thumbTop - viewHeight / 2 + thumbHeight / 2, behavior: 'smooth' });
     }
-  }, [currentPage, visiblePages, scrollTop, containerHeight, THUMB_HEIGHT]);
-
-  // Calculate which thumbnails to render based on scroll position (memoized to prevent recalc on every render)
-  const { startIndex, endIndex, topSpacer, bottomSpacer } = useMemo(() => {
-    const start = Math.max(0, Math.floor(scrollTop / THUMB_HEIGHT) - BUFFER);
-    const end = Math.min(
-      visiblePages.length - 1,
-      Math.ceil((scrollTop + containerHeight) / THUMB_HEIGHT) + BUFFER
-    );
-    const top = start * THUMB_HEIGHT;
-    const bottom = (visiblePages.length - end - 1) * THUMB_HEIGHT;
-    return { startIndex: start, endIndex: end, topSpacer: top, bottomSpacer: bottom };
-  }, [scrollTop, visiblePages.length, containerHeight, THUMB_HEIGHT, BUFFER]);
+  }, [currentPage, visiblePages]);
 
   return (
     <div className="page-sidebar">
       <div className="page-sidebar-header">Pages</div>
       <div ref={scrollContainerRef} className="page-sidebar-list">
-        <div style={{ height: topSpacer }} />
-        {visiblePages.slice(startIndex, endIndex + 1).map((pageNum) => (
+        {visiblePages.map((pageNum) => (
           <PageThumbnail
             key={pageNum}
             pdfDoc={pdfDoc}
@@ -122,7 +94,6 @@ function PageSidebarComponent({
             isVisible={visibleThumbnails.has(pageNum)}
           />
         ))}
-        <div style={{ height: Math.max(0, bottomSpacer) }} />
       </div>
     </div>
   );

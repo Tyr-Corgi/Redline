@@ -277,6 +277,7 @@ export default function App() {
   const handleSave = useSaveHandler({
     file,
     pdfDoc,
+    pdfBytesRef,
     fabricCanvasRef,
     currentPage,
     zoom,

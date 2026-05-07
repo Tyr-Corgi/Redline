@@ -81,12 +81,10 @@ export async function initializeFabricCanvas(
     enableRetinaScaling: true,
   });
 
-  onCanvasReady?.(fc);
-
-  // Restore saved annotations for this page.
-  // Annotations are stored raw at whatever zoom they were created at, along
-  // with the zoom level. To load them into the current zoom, we scale ALL
-  // object properties by (currentZoom / storedZoom).
+  // Restore saved annotations BEFORE calling onCanvasReady.
+  // onCanvasReady pushes a baseline history snapshot — if called before
+  // loadFromJSON, the baseline is empty and the history undo/redo effect
+  // would wipe restored annotations on page change.
   if (savedAnnotations) {
     try {
       const zoomRatio = savedAnnotations.zoom > 0 ? currentZoom / savedAnnotations.zoom : 1;
@@ -114,6 +112,10 @@ export async function initializeFabricCanvas(
       // Failed to restore annotations, continue without them
     }
   }
+
+  // Call onCanvasReady AFTER annotations are loaded so the baseline
+  // snapshot includes the restored objects.
+  onCanvasReady?.(fc);
 
   return fc;
 }
